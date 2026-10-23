@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0a12">
+  <meta name="description" content="Hide and reveal password-encrypted messages and files in PNG images or text, entirely in your browser.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/studio.css">
+  <link rel="stylesheet" href="css/theme-accessibility.css">
+  <link rel="stylesheet" href="css/landing.css">
+  <title>Whisper Pixels — A little secret. In plain sight.</title>
+  <script>
+    (() => {
+      const saved = localStorage.getItem('theme');
+      const light = saved ? saved === 'light' : matchMedia('(prefers-color-scheme: light)').matches;
+      if (light) document.documentElement.classList.add('light-mode');
+    })();
+  </script>
+</head>
+<body class="landing-page">
+  <main class="app-shell landing-shell">
+    <header class="topbar">
+      <a class="brand" href="index.html" aria-label="Whisper Pixels home">
+        <span class="brand-mark">W</span>
+        <span>WHISPER <b>PIXELS</b></span>
+      </a>
+      <nav class="landing-nav" aria-label="Main navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="inspector.html">Inspector Lab</a>
+        <a class="nav-cta" href="studio.html">Open Studio <span aria-hidden="true">↗</span></a>
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch theme" title="Switch theme">☼</button>
+      </nav>
+    </header>
+
+    <section class="landing-hero">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="status-dot"></span> PRIVATE BY DESIGN · RUNS IN YOUR BROWSER</div>
+        <h1>A little secret.<br><em>In plain sight.</em></h1>
+        <p>Encrypt a message or file, then tuck it into an image or ordinary text. Your content stays on your device.</p>
+        <div class="hero-actions">
+          <a class="landing-primary" href="studio.html">Open the Studio <span aria-hidden="true">→</span></a>
+          <a class="landing-secondary" href="#how-it-works">See how it works</a>
+        </div>
+        <div class="trust-row" aria-label="Privacy and security features">
+          <span><b aria-hidden="true">⌁</b> AES-GCM encryption</span>
+          <span><b aria-hidden="true">◉</b> No account or upload</span>
+          <span><b aria-hidden="true">✓</b> Verify before download</span>
+        </div>
+      </div>
+      <div class="hero-art" role="img" aria-label="Illustration of a message encrypted and hidden in a pixel">
+        <div class="art-orbit orbit-one"></div>
+        <div class="art-orbit orbit-two"></div>
+        <div class="art-lock"><span aria-hidden="true">⌑</span></div>
+        <div class="art-pixel pixel-a"></div>
+        <div class="art-pixel pixel-b"></div>
+        <div class="art-pixel pixel-c"></div>
+        <div class="art-pixel pixel-d"></div>
+        <div class="art-code">01101000&nbsp; 01101001<br><span>message secured locally</span></div>
+        <div class="art-caption">A single pixel. A world of meaning.</div>
+      </div>
+    </section>
+
+    <section class="capability-strip" aria-label="Supported carriers">
+      <div><span class="capability-icon">▧</span><span><b>PNG image</b><small>Lossless output, hidden in RGB pixels</small></span></div>
+      <div><span class="capability-icon">¶</span><span><b>Plain text</b><small>Zero-width Unicode carries encrypted bits</small></span></div>
+      <div><span class="capability-icon">▤</span><span><b>File attachments</b><small>Attach a file with your message</small></span></div>
+    </section>
+
+    <section class="how-section" id="how-it-works">
+      <div class="section-heading">
+        <div class="eyebrow accent-label">THREE SIMPLE STEPS</div>
+        <h2>Hide a secret.<br><em>Keep it yours.</em></h2>
+        <p>No accounts, servers, or complicated setup. Just a carrier, a message, and a password you remember.</p>
+      </div>
+      <div class="step-grid">
+        <article class="landing-step">
+          <span class="step-number">01</span>
+          <div class="step-art image-step" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <h3>Choose what to hide in</h3>
+          <p>Pick a PNG image or a sentence as the carrier for your private message.</p>
+        </article>
+        <article class="landing-step">
+          <span class="step-number">02</span>
+          <div class="step-art lock-step" aria-hidden="true"><span>••••••••</span><b>ENCRYPTED</b></div>
+          <h3>Write and protect</h3>
+          <p>Your password derives an AES-GCM key. The app encrypts your message before embedding it.</p>
+        </article>
+        <article class="landing-step">
+          <span class="step-number">03</span>
+          <div class="step-art result-step" aria-hidden="true"><span>PNG</span><b>✓</b></div>
+          <h3>Verify and share</h3>
+          <p>Check the result, then share the PNG as-is. Recompression can erase hidden image data.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="trust-panel">
+      <div>
+        <div class="eyebrow accent-label">DESIGNED FOR PRIVACY</div>
+        <h2>Your secret stays <em>yours.</em></h2>
+        <p>Encryption, embedding, and verification happen locally in your browser. Whisper Pixels does not upload your message, password, or files.</p>
+      </div>
+      <a href="inspector.html" class="trust-link">Explore the Inspector Lab <span aria-hidden="true">↗</span></a>
+    </section>
+
+    <section class="limits-note">
+      <span aria-hidden="true">i</span>
+      <p><b>A note about image sharing:</b> use the exact PNG you download. Social apps, messaging services, filters, and resizing may remove hidden image data. Audio and video carriers are not supported.</p>
+    </section>
+
+    <footer class="landing-footer">
+      <a class="brand footer-brand" href="index.html"><span class="brand-mark">W</span><span>WHISPER <b>PIXELS</b></span></a>
+      <span>Private by design · No uploads · <a href="https://github.com/Imran-Shaik-01/whisper_pixels/issues" target="_blank" rel="noreferrer">Report a bug</a></span>
+    </footer>
+  </main>
+  <script type="module" src="js/landing.js"></script>
+</body>
+</html>

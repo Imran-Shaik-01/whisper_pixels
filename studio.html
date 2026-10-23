@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0a12">
+  <meta name="description" content="Hide and reveal encrypted messages or files inside PNG images, entirely in your browser.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/studio.css">
+  <link rel="stylesheet" href="css/theme-accessibility.css">
+  <title>Whisper Pixels — Private Steganography Studio</title>
+  <script>
+    (() => {
+      const saved = localStorage.getItem('theme');
+      const light = saved ? saved === 'light' : matchMedia('(prefers-color-scheme: light)').matches;
+      if (light) document.documentElement.classList.add('light-mode');
+    })();
+  </script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="index.html" aria-label="Whisper Pixels home"><span class="brand-mark">W</span><span>WHISPER <b>PIXELS</b></span></a>
+      <div class="top-actions">
+        <a class="text-link" href="index.html">← Home</a>
+        <a class="text-link" href="inspector.html">Inspector Lab ↗</a>
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch to light theme" title="Switch theme"><span aria-hidden="true">☼</span></button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="eyebrow"><span class="status-dot"></span> PRIVATE BY DESIGN · NOTHING LEAVES YOUR DEVICE</div>
+      <h1>A little secret.<br><em>In plain sight.</em></h1>
+      <p>Protect a message or file, then tuck it inside an image. Only the image and your password are needed to reveal it.</p>
+      <div class="mode-switch" role="group" aria-label="Choose hide or reveal">
+        <button class="mode-choice active" id="hide-mode" type="button" aria-pressed="true">↗ Hide a secret</button>
+        <button class="mode-choice" id="reveal-mode" type="button" aria-pressed="false">↙ Reveal a secret</button>
+      </div>
+    </section>
+
+    <nav class="steps" aria-label="Workflow">
+      <div class="step active" data-step-indicator="1"><span>01</span><div><b>Choose a carrier</b><small>PNG image or text</small></div></div>
+      <div class="step" data-step-indicator="2"><span>02</span><div><b>Write & protect</b><small>Message and password</small></div></div>
+      <div class="step" data-step-indicator="3"><span>03</span><div><b>Download or reveal</b><small>Verify your result</small></div></div>
+    </nav>
+
+    <div class="workspace">
+      <section class="card workflow-card" aria-labelledby="workspace-title">
+        <div class="card-heading">
+          <div><span class="eyebrow accent-label" id="step-kicker">STEP 01 — CHOOSE A CARRIER</span><h2 id="workspace-title">Choose what to hide in</h2></div>
+          <span class="lock-badge">⌁ ENCRYPTED HERE</span>
+        </div>
+
+        <div class="carrier-tabs" id="carrier-tabs" role="group" aria-label="Carrier type">
+          <button class="carrier-tab active" type="button" data-carrier="image" aria-pressed="true"><span>▧</span> Image <small>PNG output</small></button>
+          <button class="carrier-tab" type="button" data-carrier="text" aria-pressed="false"><span>¶</span> Text <small>Invisible marks</small></button>
+        </div>
+
+        <div id="image-carrier" class="carrier-panel">
+          <label class="dropzone" id="image-dropzone" for="image-input" tabindex="0">
+            <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/bmp">
+            <span class="upload-icon" aria-hidden="true">↑</span>
+            <strong id="image-drop-title">Drop a cover image here</strong>
+            <span>or <u>browse files</u> · PNG, JPEG, WebP, BMP</span>
+            <small>We always export as PNG. Start with a detailed, larger image for more capacity.</small>
+          </label>
+          <div class="file-preview" id="image-preview" hidden>
+            <img id="cover-preview" alt="Selected cover image preview">
+            <div class="file-meta"><b id="cover-name"></b><span id="cover-details"></span><button type="button" class="quiet-button" id="clear-image">Remove image</button></div>
+          </div>
+          <div class="capacity" id="capacity-panel" hidden>
+            <div class="capacity-heading"><span>Estimated capacity</span><b id="capacity-copy">Choose an image to calculate</b></div>
+            <div class="capacity-track"><span id="capacity-fill"></span></div>
+            <small>Approximate UTF-8 bytes available for your message and attachment.</small>
+          </div>
+          <div class="visual-tools" id="visual-tools" hidden>
+            <div class="visual-heading"><b>Pixel peek</b><span>LSB bit-plane · educational only</span></div>
+            <canvas id="bitplane-canvas" width="240" height="120" aria-label="Visualization of the image's least significant color bits"></canvas>
+            <p>The faint pattern shows each pixel’s lowest color bit. Noise alone cannot prove that a message is present.</p>
+          </div>
+        </div>
+
+        <div id="text-carrier" class="carrier-panel" hidden>
+          <label for="cover-text">Cover text</label>
+          <textarea id="cover-text" rows="4" placeholder="Write a natural-looking sentence to carry your secret…"></textarea>
+          <p class="field-note">This mode adds invisible Unicode marks. Some apps remove them when formatting or copying text.</p>
+        </div>
+
+        <div id="reveal-panel" class="carrier-panel" hidden>
+          <label class="dropzone compact-dropzone" id="reveal-dropzone" for="reveal-input" tabindex="0">
+            <input id="reveal-input" type="file" accept="image/png,image/*">
+            <span class="upload-icon" aria-hidden="true">↙</span>
+            <strong>Drop the original stego PNG here</strong>
+            <span>or <u>browse for an image</u></span>
+            <small>Do not re-share through services that compress or resize images.</small>
+          </label>
+          <div class="file-meta reveal-meta" id="reveal-meta" hidden><b id="reveal-name"></b><span id="reveal-details"></span></div>
+          <label for="reveal-text" class="reveal-text-label">Or paste stego text</label>
+          <textarea id="reveal-text" rows="3" placeholder="Paste text that may contain an invisible message…"></textarea>
+        </div>
+
+        <div class="divider"><span id="divider-label">YOUR SECRET</span></div>
+        <div id="hide-fields">
+          <label for="secret-message">Message</label>
+          <textarea id="secret-message" rows="4" maxlength="1000000" placeholder="Write a message only your recipient should read…"></textarea>
+          <div class="message-footer"><small id="message-count">0 characters</small><span>Encrypted before embedding</span></div>
+          <div class="attachment-row">
+            <label class="attach-button" for="attachment-input">＋ Attach a file <span>(PDF, ZIP, photo, anything)</span></label>
+            <input id="attachment-input" type="file">
+            <button id="remove-attachment" type="button" class="quiet-button" hidden>Remove attachment</button>
+          </div>
+          <div id="attachment-meta" class="attachment-meta" hidden></div>
+          <div class="password-grid">
+            <div>
+              <label for="hide-password">Password</label>
+              <div class="password-wrap"><input id="hide-password" type="password" autocomplete="new-password" placeholder="Use a strong passphrase"><button type="button" class="show-password" data-target="hide-password" aria-label="Show password">Show</button></div>
+              <div class="strength"><span id="strength-fill"></span></div><small id="strength-label">Password strength</small>
+            </div>
+            <div>
+              <label for="confirm-password">Confirm password</label>
+              <input id="confirm-password" type="password" autocomplete="new-password" placeholder="Type it again">
+            </div>
+          </div>
+          <label for="expiry-date">Optional expiry date <span class="optional">(convenience only)</span></label>
+          <input id="expiry-date" type="date">
+          <p class="field-note">Expiry is checked in this browser, not enforced cryptographically. Keep your password safe: it cannot be recovered.</p>
+        </div>
+
+        <div id="reveal-fields" hidden>
+          <label for="reveal-password">Password</label>
+          <div class="password-wrap"><input id="reveal-password" type="password" autocomplete="current-password" placeholder="Enter the password used to hide it"><button type="button" class="show-password" data-target="reveal-password" aria-label="Show password">Show</button></div>
+          <p class="field-note">A wrong password is reported separately from an image with no Whisper Pixels payload.</p>
+        </div>
+
+        <div class="alert" id="alert" role="status" aria-live="polite" hidden></div>
+        <div class="progress-wrap" id="progress-wrap" hidden><div class="progress-label" aria-live="polite"><span id="progress-label">Preparing…</span><b id="progress-percent">0%</b></div><progress id="progress-bar" max="100" value="0">0%</progress></div>
+        <button class="primary-button" id="go-button" type="button">Continue to message <span aria-hidden="true">→</span></button>
+
+        <section class="result" id="result" hidden aria-live="polite">
+          <div class="result-icon" id="result-icon">✓</div>
+          <div><h3 id="result-title">All set</h3><p id="result-description"></p></div>
+          <div id="revealed-message" class="revealed-message" hidden></div>
+          <div id="revealed-file" class="revealed-file" hidden></div>
+          <div class="result-actions" id="result-actions"></div>
+        </section>
+        <section class="compare-panel" id="compare-panel" hidden aria-label="Original and hidden image comparison">
+          <div class="visual-heading"><b>Before / after</b><span>Drag the slider to compare</span></div>
+          <div class="compare-stage">
+            <img id="compare-original" alt="Original cover image">
+            <img id="compare-stego" alt="PNG image with the encrypted secret embedded">
+            <canvas id="diff-canvas" hidden aria-label="Amplified difference heatmap"></canvas>
+          </div>
+          <label class="sr-only" for="compare-slider">Compare original and stego image</label>
+          <input id="compare-slider" type="range" min="0" max="100" value="50">
+          <button type="button" class="quiet-button" id="heatmap-toggle">Show amplified difference</button>
+        </section>
+      </section>
+
+      <aside class="side-column">
+        <section class="info-card">
+          <span class="eyebrow accent-label">A SIMPLE EXPLANATION</span>
+          <h2>How does this work?</h2>
+          <p>We encrypt your secret, then tuck it into tiny image details that are too subtle to notice. Think of changing one pixel’s color by just one step:</p>
+          <div class="pixel-demo" aria-label="Pixel color changes from 100 to 101, a one-bit change">
+            <span class="pixel-swatch"></span><span class="pixel-value">100</span><span class="pixel-arrow">→</span><span class="pixel-swatch changed"></span><span class="pixel-value">101</span>
+          </div>
+          <p class="demo-caption">The color barely changes. That single-bit difference can carry data.</p>
+          <div class="explain-rule"><b>Encryption</b><span>PBKDF2 turns your password into an AES-256 key. AES-GCM detects tampering and wrong passwords.</span></div>
+          <div class="explain-rule"><b>Image safety</b><span>Pixels survive only if the image is preserved exactly. Compression, resizing, screenshots and filters destroy the hidden data.</span></div>
+          <div class="explain-rule"><b>Privacy</b><span>Everything runs locally in your browser. This tool does not send your files or password to a server.</span></div>
+        </section>
+        <section class="notice-card"><span aria-hidden="true">!</span><div><b>Keep the original quality</b><p>Always use the downloaded PNG. Sharing through WhatsApp, Instagram or email may recompress it and remove the secret.</p></div></section>
+        <section class="notice-card audio-note"><span aria-hidden="true">♪</span><div><b>Audio & video files</b><p>They are not supported as carriers yet. Appending data to them is unreliable; re-encoding usually strips it. Use a PNG image instead.</p></div></section>
+      </aside>
+    </div>
+    <footer>Whisper Pixels <span>·</span> Your data stays on this device <span>·</span> <a href="https://github.com/Imran-Shaik-01/whisper_pixels/issues" target="_blank" rel="noreferrer">Report a bug</a></footer>
+  </main>
+  <script type="module" src="js/studio.js"></script>
+</body>
+</html>

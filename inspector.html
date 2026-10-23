@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0a12">
+  <meta name="description" content="Explore image differences, hidden text markers, and the encryption process in Whisper Pixels Inspector Lab.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/studio.css">
+  <link rel="stylesheet" href="css/theme-accessibility.css">
+  <link rel="stylesheet" href="css/inspector.css">
+  <title>Inspector Lab — Whisper Pixels</title>
+  <script>
+    (() => {
+      const saved = localStorage.getItem('theme');
+      const light = saved ? saved === 'light' : matchMedia('(prefers-color-scheme: light)').matches;
+      if (light) document.documentElement.classList.add('light-mode');
+    })();
+  </script>
+</head>
+<body>
+  <main class="app-shell inspector-shell">
+    <header class="topbar">
+      <a class="brand" href="index.html" aria-label="Whisper Pixels home"><span class="brand-mark">W</span><span>WHISPER <b>PIXELS</b></span></a>
+      <div class="top-actions">
+        <a class="text-link" href="studio.html">← Studio</a>
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch theme" title="Switch theme">☼</button>
+      </div>
+    </header>
+    <section class="hero inspector-hero">
+      <div class="eyebrow"><span class="status-dot"></span> INSPECTOR LAB · LOCAL ANALYSIS</div>
+      <h1>Look closer.<br><em>Learn what changed.</em></h1>
+      <p>Compare your own carrier files, explore image bit planes, inspect invisible text, and follow the encryption pipeline. Everything stays in this browser.</p>
+      <button class="lab-button explain-open" id="explain-open" type="button">✨ Explain what happened</button>
+      <p class="explain-status" id="explain-status" aria-live="polite">A private, numbers-based walkthrough of your latest hide or reveal operation.</p>
+    </section>
+
+    <nav class="lab-tabs" aria-label="Inspector tools" role="tablist">
+      <button class="lab-tab active" role="tab" aria-selected="true" aria-controls="image-lab" id="image-tab">▧ Image inspector</button>
+      <button class="lab-tab" role="tab" aria-selected="false" aria-controls="text-lab" id="text-tab">¶ Text inspector</button>
+      <button class="lab-tab" role="tab" aria-selected="false" aria-controls="crypto-lab" id="crypto-tab">⌁ Encryption lab</button>
+    </nav>
+
+    <section class="lab-panel" id="image-lab" role="tabpanel" aria-labelledby="image-tab">
+      <div class="lab-intro">
+        <div><div class="eyebrow accent-label">PIXEL-BY-PIXEL</div><h2>Image comparison</h2><p>Choose the original cover and its matching stego PNG. Both images must have the same dimensions.</p></div>
+        <span class="lab-badge">PNG · UP TO 12 MP</span>
+      </div>
+      <div class="upload-grid">
+        <label class="lab-upload" for="original-input"><span>01 · ORIGINAL</span><b id="original-file-label">Choose original image</b><small>PNG, JPEG, WebP, BMP</small><input id="original-input" type="file" accept="image/*"></label>
+        <label class="lab-upload" for="stego-input"><span>02 · STEGO</span><b id="stego-file-label">Choose stego image</b><small>Whisper Pixels PNG recommended</small><input id="stego-input" type="file" accept="image/*"></label>
+      </div>
+      <div class="lab-error" id="image-error" role="alert" hidden></div>
+      <div class="comparison-card" id="comparison-card" hidden>
+        <div class="view-heading"><div><b>Side-by-side comparison</b><small>Drag the divider to reveal each image</small></div><div class="view-switch" role="group" aria-label="Comparison view"><button class="active" data-view="slider">Slider</button><button data-view="heatmap">Heatmap</button></div></div>
+        <div class="image-stage" id="image-stage">
+          <canvas id="original-canvas" aria-label="Original image"></canvas>
+          <canvas id="stego-canvas" aria-label="Stego image"></canvas>
+          <canvas id="heatmap-canvas" aria-label="Amplified pixel difference heatmap" hidden></canvas>
+          <div class="slider-divider" id="slider-divider" aria-hidden="true"></div>
+          <span class="image-tag tag-left">ORIGINAL</span><span class="image-tag tag-right">STEGO PNG</span>
+        </div>
+        <label class="sr-only" for="image-slider">Image comparison divider</label>
+        <input id="image-slider" class="image-slider" type="range" min="0" max="100" value="50">
+        <p class="lab-footnote" id="heatmap-note" hidden>Per-channel difference ×255, clipped at 255. Unchanged pixels are black; any changed pixel is highlighted.</p>
+      </div>
+      <div class="image-tools" id="image-tools" hidden>
+        <section class="tool-card">
+          <div class="tool-title"><div><b>Pixel zoom</b><small>Hover or focus the image to inspect exact RGB values</small></div><span id="pixel-coordinate">x: —, y: —</span></div>
+          <canvas id="zoom-canvas" width="180" height="180" aria-label="Magnified pixels under the pointer"></canvas>
+          <div class="pixel-values" id="pixel-values" aria-live="polite">Move your pointer over the comparison to inspect a pixel.</div>
+        </section>
+        <section class="tool-card stats-card">
+          <div class="tool-title"><div><b>Image statistics</b><small>Computed from decoded RGB pixels</small></div></div>
+          <dl class="stats-grid">
+            <div><dt>Pixels changed</dt><dd id="stat-changed">—</dd></div>
+            <div><dt>Image modified</dt><dd id="stat-percent">—</dd></div>
+            <div><dt>MSE</dt><dd id="stat-mse">—</dd></div>
+            <div><dt>PSNR</dt><dd id="stat-psnr">—</dd></div>
+            <div><dt>Max channel delta</dt><dd id="stat-max">—</dd></div>
+            <div><dt>Capacity used</dt><dd id="stat-capacity">—</dd></div>
+          </dl>
+          <p class="lab-footnote">Pixel-change count means pixels with one or more RGB channel differences. Capacity usage is estimated from image dimensions and the visible payload header; it may be unavailable for other stego formats.</p>
+        </section>
+        <section class="tool-card bitplane-card">
+          <div class="tool-title"><div><b>Bit-plane viewer</b><small>Inspect one color channel and bit position</small></div></div>
+          <div class="bit-controls"><label for="bit-channel">Channel</label><select id="bit-channel"><option value="0">Red</option><option value="1">Green</option><option value="2">Blue</option></select><label for="bit-number">Bit</label><select id="bit-number"><option value="0">0 · least significant</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7 · most significant</option></select><label class="check-label"><input type="checkbox" id="bit-stego" checked> Stego image</label></div>
+          <canvas id="bitplane-view" aria-label="Selected image bit plane"></canvas>
+          <p class="lab-footnote">Bit 0 looks noise-like because payload bits are spread through the image. Noise is not proof of hidden data.</p>
+        </section>
+        <section class="tool-card histogram-card">
+          <div class="tool-title"><div><b>RGB histogram</b><small>Original is dashed; stego image is solid</small></div></div>
+          <canvas id="histogram-canvas" aria-label="Overlaid red green and blue pixel value histograms"></canvas>
+          <p class="lab-footnote">Subtle value pairing can be educational to explore, but histograms cannot confirm whether a message exists.</p>
+        </section>
+      </div>
+    </section>
+
+    <section class="lab-panel" id="text-lab" role="tabpanel" aria-labelledby="text-tab" hidden>
+      <div class="lab-intro"><div><div class="eyebrow accent-label">INVISIBLE CHARACTERS</div><h2>Text inspector</h2><p>Paste the original cover text and the stego text. Hidden markers are shown as readable badges below.</p></div><span class="lab-badge">ZERO-WIDTH MARKS</span></div>
+      <div class="text-input-grid"><div><label for="plain-text-input">Original cover text</label><textarea id="plain-text-input" rows="5" placeholder="Paste the original cover sentence…"></textarea></div><div><label for="stego-text-input">Stego text</label><textarea id="stego-text-input" rows="5" placeholder="Paste the complete hidden text…"></textarea></div></div>
+      <div class="text-actions"><button class="lab-button" id="inspect-text-button" type="button">Inspect invisible characters</button><span id="text-counts">Visible length: — · Real length: —</span></div>
+      <div class="lab-error" id="text-error" role="alert" hidden></div>
+      <div class="text-results" id="text-results" hidden>
+        <section class="tool-card"><div class="tool-title"><div><b>Invisible characters revealed</b><small>Inserted Unicode markers appear as colored badges</small></div><span id="marker-count"></span></div><div class="revealed-text" id="revealed-invisibles"></div><div class="legend"><span><b class="badge-marker marker-start">START</b> U+2063</span><span><b class="badge-marker marker-zero">0</b> U+200B</span><span><b class="badge-marker marker-one">1</b> U+200C</span><span><b class="badge-marker marker-end">END</b> U+2064</span></div></section>
+        <section class="tool-card"><div class="tool-title"><div><b>Text diff</b><small>Original left · stego with visible marks right</small></div></div><div class="diff-grid"><pre id="diff-original"></pre><pre id="diff-stego"></pre></div></section>
+        <section class="tool-card"><div class="tool-title"><div><b>Binary decode strip</b><small>Payload bytes grouped into bits and hexadecimal</small></div><span id="binary-summary"></span></div><div class="binary-strip" id="binary-strip"></div><p class="lab-footnote">Whisper Pixels encrypts the message first, so embedded bytes look random. The header is readable; the ciphertext should not look like plaintext.</p></section>
+      </div>
+    </section>
+
+    <section class="lab-panel" id="crypto-lab" role="tabpanel" aria-labelledby="crypto-tab" hidden>
+      <div class="lab-intro"><div><div class="eyebrow accent-label">FOLLOW THE TRANSFORM</div><h2>Encryption visualizer</h2><p>A local educational demonstration of password derivation, authenticated encryption, and why a one-letter change avalanches through ciphertext.</p></div><span class="lab-badge">DEMO ONLY · NOT EMBEDDED</span></div>
+      <div class="demo-warning"><b>Educational safety note</b><span>Each encryption uses a fresh random salt and nonce. The avalanche comparison shows how changing the message changes ciphertext, while those fresh random values also contribute to the difference. Demo output is never used by the studio or saved.</span></div>
+      <div class="crypto-controls"><div><label for="demo-message">Plaintext</label><input id="demo-message" value="Meet at 9pm"></div><div><label for="demo-password">Demo password</label><div class="password-wrap"><input id="demo-password" type="password" value="example-only-passphrase"><button class="show-password" type="button" data-target="demo-password" aria-label="Show password">Show</button></div></div><button class="lab-button" id="run-demo" type="button">Run local demo</button></div>
+      <div class="lab-error" id="crypto-error" role="alert" hidden></div>
+      <div class="pipeline" id="pipeline" hidden>
+        <div class="pipeline-node"><span>01 · PLAINTEXT</span><code id="pipe-plain"></code></div><div class="pipeline-arrow">↓</div>
+        <div class="pipeline-node"><span>02 · UTF-8 BYTES</span><code id="pipe-bytes"></code></div><div class="pipeline-arrow">↓</div>
+        <div class="pipeline-node"><span>03 · PBKDF2 → AES-256 KEY</span><code>Key fingerprint: <b id="pipe-fingerprint"></b> · 310,000 PBKDF2-SHA-256 iterations · key itself never shown</code></div><div class="pipeline-arrow">↓</div>
+        <div class="pipeline-node"><span>04 · AES-256-GCM CIPHERTEXT</span><code id="pipe-cipher"></code></div><div class="pipeline-arrow">↓</div>
+        <div class="pipeline-node"><span>05 · EMBEDDED BIT STREAM</span><code id="pipe-bits"></code></div><div class="pipeline-arrow">↓</div>
+        <div class="pipeline-node"><span>06 · WHERE THE BITS LAND</span><canvas id="landing-map" width="720" height="150" aria-label="Illustration of spread pixel positions"></canvas><small>Illustrative spread only; the actual spread is keyed to the derived password and each image dimensions its own usable pixels.</small></div>
+      </div>
+      <div class="demo-extras" id="demo-extras" hidden>
+        <section class="tool-card"><div class="tool-title"><div><b>Avalanche demo</b><small>Change one character; compare ciphertext bits</small></div><span id="avalanche-score"></span></div><div class="avalanche-grid"><div><label for="changed-message">Changed plaintext</label><input id="changed-message"></div><button class="lab-button" id="compare-avalanche" type="button">Compare ciphertexts</button></div><div class="avalanche-result" id="avalanche-result"></div></section>
+        <section class="tool-card"><div class="tool-title"><div><b>Wrong-password check</b><small>AES-GCM authenticates rather than returning plausible garbage</small></div></div><button class="lab-button secondary-button" id="wrong-password-demo" type="button">Try a wrong password</button><div class="wrong-result" id="wrong-result" aria-live="polite"></div></section>
+      </div>
+    </section>
+
+    <section class="future-note"><b>Supported carriers</b><p>Whisper Pixels currently embeds and inspects image and text carriers. Audio waveform analysis and video frame inspection are not available.</p></section>
+    <footer>Whisper Pixels <span>·</span> Inspector Lab runs on your device <span>·</span> <a href="studio.html">Back to studio</a></footer>
+  </main>
+  <dialog class="explainer-dialog" id="explainer-dialog" aria-labelledby="explainer-title">
+    <div class="explainer-header">
+      <div><span class="eyebrow accent-label">PRIVATE · TEMPLATE-BASED WALKTHROUGH</span><h2 id="explainer-title">What happened to your secret?</h2></div>
+      <button class="icon-button" id="explainer-close" type="button" aria-label="Close explanation">×</button>
+    </div>
+    <p class="explainer-privacy">No cloud AI is used. This explanation is generated on this device from your operation’s statistics and short text previews; your password, key and image are never sent anywhere.</p>
+    <div class="explainer-stage-wrap">
+      <div class="explainer-step-label" id="explainer-step-label"></div>
+      <canvas id="explainer-stage" width="960" height="300" aria-label="Illustration for the current explanation step"></canvas>
+    </div>
+    <section class="explainer-narration" aria-live="polite">
+      <h3 id="explainer-step-title"></h3>
+      <p id="explainer-narration"></p>
+      <ul id="explainer-insights" class="explainer-insights"></ul>
+    </section>
+    <div class="explainer-controls">
+      <button class="lab-button secondary-button" id="explainer-prev" type="button">◀ Prev</button>
+      <button class="lab-button" id="explainer-play" type="button">▶ Play</button>
+      <button class="lab-button secondary-button" id="explainer-next" type="button">Next ▶</button>
+      <label for="explainer-speed">Speed</label>
+      <select id="explainer-speed"><option value="2200">Slow</option><option value="1500" selected>Normal</option><option value="900">Fast</option></select>
+    </div>
+    <label class="explainer-progress-label" for="explainer-progress">Walkthrough progress</label>
+    <progress id="explainer-progress" max="7" value="1">1 of 7</progress>
+    <div class="explainer-options">
+      <div class="explainer-segment" role="group" aria-label="Explanation detail">
+        <button type="button" class="active" data-explainer-level="beginner" aria-pressed="true">Beginner</button>
+        <button type="button" data-explainer-level="technical" aria-pressed="false">Technical</button>
+      </div>
+      <label class="check-label"><input type="checkbox" id="explainer-reveal"> Reveal replay</label>
+      <button class="text-link" id="explainer-skip" type="button">Skip animation</button>
+    </div>
+  </dialog>
+  <script type="module" src="js/inspector.js"></script>
+</body>
+</html>

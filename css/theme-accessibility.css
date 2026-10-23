@@ -1,0 +1,7 @@
+html.light-mode .mode-choice.active,
+html.light-mode .step.active > span,
+html.light-mode .step.done > span,
+html.light-mode .primary-button,
+html.light-mode .brand-mark {
+  color: #fff;
+}
