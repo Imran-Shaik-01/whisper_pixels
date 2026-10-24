@@ -1,5 +1,5 @@
-import {HEADER_SIZE, decryptBytes, decryptWithKey, deriveKey, encryptBytes, makeHeader, parseHeader} from './crypto.js';
-import {decodeInvisible, encodeInvisible} from './zerowidth.js';
+import {CURRENT_ITERATIONS, HEADER_SIZE, LEGACY_ITERATIONS, MAX_HINT_BYTES, decryptBytes, decryptWithKey, deriveKey, encryptBytes, headerSizeFromPrefix, makeHeader, parseHeader, randomBytes} from './crypto.js';
+import {decodeInvisible, decodeInvisiblePrefix, encodeInvisible, invisibleByteLength} from './zerowidth.js';
 
 (() => {
   'use strict';
@@ -10,7 +10,8 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
   const textEncoder = new TextEncoder();
   const textDecoder = new TextDecoder('utf-8', {fatal: true});
   const $ = id => document.getElementById(id);
-  const state = {mode: 'hide', carrier: 'image', step: 1, busy: false, selectionId: 0, image: null, imageUrl: null, revealImage: null, attachment: null, resultUrl: null};
+  const state = {mode: 'hide', carrier: 'image', step: 1, busy: false, selectionId: 0, image: null, imageUrl: null, revealImage: null, detectedHeader: null, attachment: null, resultUrl: null};
+  let textDetectionTimer;
 
   const setThemeButton = () => {
     const light = document.documentElement.classList.contains('light-mode');
@@ -92,6 +93,7 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       $('divider-label').textContent = step === 1 ? 'YOUR SECRET' : 'MESSAGE & SECURITY';
       $('hide-fields').hidden = step !== 2;
       $('go-button').hidden = step === 3;
+      $('go-button').disabled = false;
       $('go-button').innerHTML = step === 1 ? 'Continue to message <span aria-hidden="true">→</span>' : 'Encrypt, verify & download <span aria-hidden="true">→</span>';
       $('result').hidden = step !== 3 && $('result').hidden;
     } else {
@@ -100,12 +102,22 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       $('divider-label').textContent = 'REVEAL YOUR SECRET';
       $('reveal-fields').hidden = step !== 2;
       $('go-button').hidden = step === 3;
+      $('go-button').disabled = !state.detectedHeader;
       $('go-button').innerHTML = step === 1 ? 'Continue to password <span aria-hidden="true">→</span>' : 'Reveal secret <span aria-hidden="true">→</span>';
     }
   }
 
   function setMode(mode) {
     state.mode = mode;
+    state.selectionId++;
+    state.revealImage = null;
+    state.detectedHeader = null;
+    $('reveal-input').value = '';
+    $('reveal-text').value = '';
+    $('reveal-meta').hidden = true;
+    $('reveal-password').value = '';
+    window.clearTimeout(textDetectionTimer);
+    setDetectionStatus('Choose a file or paste text to check for a hidden payload.');
     $('hide-mode').classList.toggle('active', mode === 'hide');
     $('reveal-mode').classList.toggle('active', mode === 'reveal');
     $('hide-mode').setAttribute('aria-pressed', String(mode === 'hide'));
@@ -151,10 +163,6 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     return new Intl.NumberFormat().format(count);
   }
 
-  function passwordStrength(password) {
-    return !password ? 0 : Math.min(4, [password.length >= 8, password.length >= 13, /[A-Z]/.test(password) && /[a-z]/.test(password), /\d/.test(password) && /[^A-Za-z0-9]/.test(password)].filter(Boolean).length);
-  }
-
   function countCodePoints(value) {
     let count = 0;
     for (let index = 0; index < value.length; index++, count++) {
@@ -193,7 +201,7 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     return preview;
   }
 
-  function createExplainReport({message, password, method, direction, payloadBits, capacityBits, sourceFormat, width, height, samples = [], sampleBits = '', coverPreview = '', coverChars = 0, stegoChars = 0, markerCount = 0, attachmentBytes = 0, encryption = true}) {
+  function createExplainReport({message, method, direction, payloadBits, capacityBits, sourceFormat, width, height, samples = [], sampleBits = '', coverPreview = '', coverChars = 0, stegoChars = 0, markerCount = 0, attachmentBytes = 0, encryption = true, iterations = CURRENT_ITERATIONS, payloadVersion = 3, headerBytes = HEADER_SIZE + 2, hintBytes = 0}) {
     const messageBytes = textEncoder.encode(message);
     return {
       version: 1,
@@ -203,7 +211,10 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       messageChars: countCodePoints(message),
       messageBytes: messageBytes.length,
       messageBits: [...messageBytes.subarray(0, 7)].map(byte => byte.toString(2).padStart(8, '0')).join(' '),
-      encryption: encryption ? {algo: 'AES-256-GCM', kdf: 'PBKDF2-SHA-256', iterations: 310000} : null,
+      encryption: encryption ? {algo: 'AES-256-GCM', kdf: 'PBKDF2-SHA-256', iterations} : null,
+      payloadVersion,
+      headerBytes,
+      hintBytes,
       payloadBits,
       capacityBits,
       usedPercent: capacityBits ? payloadBits / capacityBits * 100 : 0,
@@ -217,8 +228,7 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       stegoChars,
       markerCount,
       attachmentBytes,
-      sourceFormat: sourceFormat || '',
-      passwordStrength: password ? passwordStrength(password) : null
+      sourceFormat: sourceFormat || ''
     };
   }
 
@@ -241,7 +251,8 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
   function updateCapacity() {
     $('capacity-panel').hidden = !state.image;
     if (!state.image) return;
-    const carrierBytes = Math.max(0, Math.floor((state.image.width * state.image.height * 3 - HEADER_SIZE * 8) / 8) - 16);
+    const headerBytes = HEADER_SIZE + 2 + textEncoder.encode($('hide-hint').value.trim()).length;
+    const carrierBytes = Math.max(0, Math.floor((state.image.width * state.image.height * 3 - headerBytes * 8) / 8) - 16);
     const approximateChars = Math.floor(carrierBytes / 1.4);
     const messageBytes = textEncoder.encode($('secret-message').value).length;
     const attachmentBytes = state.attachment?.size || 0;
@@ -275,7 +286,12 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     clearFeedback();
     if (reveal) {
       state.revealImage = null;
+      state.detectedHeader = null;
+      setStep(1);
       $('reveal-meta').hidden = true;
+      $('reveal-text').value = '';
+      setDetectionStatus('Checking image for a hidden message…', 'working');
+      $('reveal-fields').hidden = true;
     } else {
       state.image = null;
       if (state.imageUrl) URL.revokeObjectURL(state.imageUrl);
@@ -286,27 +302,31 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       $('visual-tools').hidden = true;
     }
     if (!file.type.startsWith('image/')) {
-      setError('This file is not an image. Choose a PNG, JPEG, WebP or BMP image.');
+      const message = 'Unsupported file format. Choose a PNG, JPEG, WebP or BMP image.';
+      if (reveal) showDetectionError(message);
+      else setError(message);
       return;
     }
     if (file.size > MAX_IMAGE_SIZE) {
-      setError(`This image is too large (${bytesToSize(file.size)}). Choose an image smaller than 40 MB.`);
+      const message = `This image is too large (${bytesToSize(file.size)}). Choose an image smaller than 40 MB.`;
+      if (reveal) showDetectionError(message);
+      else setError(message);
       return;
     }
+    let bitmap;
     try {
-      const bitmap = await createImageBitmap(file);
-      if (selectionId !== state.selectionId) {
-        bitmap.close();
-        return;
-      }
+      bitmap = await createImageBitmap(file);
+      if (selectionId !== state.selectionId) return;
       if (bitmap.width < 16 || bitmap.height < 16) {
-        bitmap.close();
-        setError('This image is too small. Choose an image at least 16 × 16 pixels.');
+        const message = 'This image is too small. Choose an image at least 16 × 16 pixels.';
+        if (reveal) showDetectionError(message);
+        else setError(message);
         return;
       }
       if (bitmap.width * bitmap.height > MAX_IMAGE_PIXELS) {
-        bitmap.close();
-        setError('This image has too many pixels for safe browser processing. Choose an image below 12 megapixels.');
+        const message = 'This image has too many pixels for safe browser processing. Choose an image below 12 megapixels.';
+        if (reveal) showDetectionError(message);
+        else setError(message);
         return;
       }
       if (reveal) {
@@ -314,6 +334,14 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
         $('reveal-name').textContent = file.name;
         $('reveal-details').textContent = `${bitmap.width} × ${bitmap.height} · ${bytesToSize(file.size)} · ${file.type || 'unknown format'}`;
         $('reveal-meta').hidden = false;
+        const header = inspectImageHeader(bitmap);
+        if (selectionId !== state.selectionId) return;
+        if (!header) showMissingPayload();
+        else {
+          const capacity = Math.floor((bitmap.width * bitmap.height * 3 - header.bytes.length * 8) / 8);
+          if (header.length > capacity) showDetectionError('Unreadable payload: its header requires more capacity than this image contains.');
+          else showDetectedPayload(header);
+        }
       } else {
         state.image = {file, width: bitmap.width, height: bitmap.height};
         if (state.imageUrl) URL.revokeObjectURL(state.imageUrl);
@@ -328,10 +356,14 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
         drawBitplane(bitmap);
         updateCapacity();
       }
-      bitmap.close();
     } catch (error) {
-      console.error('Image could not be opened:', error);
-      setError('This image could not be opened by your browser. Try exporting it as PNG first.');
+      if (selectionId !== state.selectionId) return;
+      console.warn('Image could not be opened:', error);
+      const message = `Unreadable or unsupported image: ${error.message}`;
+      if (reveal) showDetectionError(message);
+      else setError(message);
+    } finally {
+      bitmap?.close();
     }
   }
 
@@ -397,13 +429,7 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     $('message-count').textContent = `${formatCount(length)} character${length === 1 ? '' : 's'}`;
     updateCapacity();
   });
-  $('hide-password').addEventListener('input', () => {
-    const password = $('hide-password').value;
-    const score = passwordStrength(password);
-    $('strength-fill').style.width = `${score * 25}%`;
-    $('strength-fill').style.background = score < 2 ? 'var(--danger)' : score < 4 ? 'var(--warn)' : 'var(--green)';
-    $('strength-label').textContent = ['Password strength', 'Weak — use 8+ characters', 'Fair — add more variety', 'Good password', 'Strong passphrase'][score];
-  });
+  $('hide-hint').addEventListener('input', updateCapacity);
   document.querySelectorAll('.show-password').forEach(button => button.addEventListener('click', () => {
     const input = $(button.dataset.target);
     const show = input.type === 'password';
@@ -464,15 +490,86 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     return left.length === right.length && left.every((byte, index) => byte === right[index]);
   }
 
-  function readHeader(pixels) {
-    const header = new Uint8Array(HEADER_SIZE);
+  function readHeaderBytes(pixels, byteLength) {
+    const header = new Uint8Array(byteLength);
     const channelCount = (pixels.length / 4) * 3;
-    if (channelCount < HEADER_SIZE * 8) throw new Error('This image is too small to contain a Whisper Pixels message.');
-    for (let bit = 0; bit < HEADER_SIZE * 8; bit++) {
+    if (channelCount < byteLength * 8) throw new Error('This image is too small to contain a Whisper Pixels message.');
+    for (let bit = 0; bit < byteLength * 8; bit++) {
       const channel = Math.floor(bit / 3) * 4 + bit % 3;
       header[bit >> 3] |= (pixels[channel] & 1) << (7 - (bit & 7));
     }
     return header;
+  }
+
+  function readHeader(pixels) {
+    const prefix = readHeaderBytes(pixels, HEADER_SIZE + 2);
+    const size = headerSizeFromPrefix(prefix);
+    return size === null ? null : parseHeader(size === prefix.length ? prefix : readHeaderBytes(pixels, size))?.bytes ?? null;
+  }
+
+  function readHeaderFromBitmap(bitmap, byteLength) {
+    const pixelCount = Math.ceil(byteLength * 8 / 3);
+    const width = Math.min(bitmap.width, pixelCount);
+    const height = Math.ceil(pixelCount / width);
+    if (height > bitmap.height) throw new Error('This image is too small to contain a Whisper Pixels message.');
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    if (!context) throw new Error('Your browser could not create an image canvas.');
+    context.drawImage(bitmap, 0, 0, width, height, 0, 0, width, height);
+    return readHeaderBytes(context.getImageData(0, 0, width, height).data, byteLength);
+  }
+
+  function inspectImageHeader(bitmap) {
+    const prefix = readHeaderFromBitmap(bitmap, HEADER_SIZE + 2);
+    const size = headerSizeFromPrefix(prefix);
+    if (size === null) return null;
+    return parseHeader(size === prefix.length ? prefix : readHeaderFromBitmap(bitmap, size));
+  }
+
+  function inspectTextHeader(text) {
+    const payloadBytes = invisibleByteLength(text);
+    if (payloadBytes === null) return null;
+    const prefix = decodeInvisiblePrefix(text, HEADER_SIZE + 2);
+    if (!prefix) return null;
+    const size = headerSizeFromPrefix(prefix);
+    if (size === null) return null;
+    const headerBytes = size === HEADER_SIZE ? prefix : decodeInvisiblePrefix(text, size);
+    if (!headerBytes) throw new Error('The hidden text header is incomplete or damaged.');
+    const header = parseHeader(headerBytes);
+    if (payloadBytes < size + header.length) throw new Error('The hidden text payload is incomplete or damaged.');
+    return header;
+  }
+
+  function setDetectionStatus(message, status = 'neutral', hint = '') {
+    const statusNode = $('detection-status');
+    statusNode.textContent = message;
+    statusNode.dataset.status = status;
+    $('detected-hint').textContent = hint ? `Hint: ${hint}` : '';
+    $('detected-hint').hidden = !hint;
+  }
+
+  function showDetectedPayload(header) {
+    state.detectedHeader = header;
+    setDetectionStatus('Hidden message detected.', 'success', header.hint);
+    $('reveal-fields').hidden = false;
+    setStep(2);
+    $('reveal-password').focus();
+  }
+
+  function showMissingPayload() {
+    state.detectedHeader = null;
+    setDetectionStatus('No hidden message found.', 'neutral');
+    $('reveal-fields').hidden = true;
+    setStep(1);
+  }
+
+  function showDetectionError(error) {
+    state.detectedHeader = null;
+    setDetectionStatus(error, 'error');
+    $('reveal-fields').hidden = true;
+    setStep(1);
   }
 
   function readImageData(bitmap) {
@@ -503,7 +600,7 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
         pixels,
         width: imageData.width,
         height: imageData.height,
-        headerBytes: HEADER_SIZE
+        headerBytes: options.headerBytes ?? HEADER_SIZE
       };
       worker.onmessage = event => {
         if (event.data.error) {
@@ -541,7 +638,9 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
 
   async function decryptPayload(header, encrypted, password) {
     try {
-      const {plaintext, seed} = await decryptBytes(password, header.salt, header.iv, encrypted);
+      const iterations = header.version === 2 ? LEGACY_ITERATIONS : CURRENT_ITERATIONS;
+      const additionalData = header.version === 3 ? header.bytes : null;
+      const {plaintext, seed} = await decryptBytes(password, header.salt, header.iv, encrypted, additionalData, iterations);
       return {data: parsePlaintext(plaintext), seed};
     } catch (error) {
       if (error.name === 'OperationError') throw new Error('Wrong password, or the encrypted data was changed. AES-GCM could not authenticate this hidden payload.');
@@ -554,19 +653,21 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     if (!file) throw new Error('Choose an image file to reveal a message from.');
     if (!file.type.startsWith('image/')) throw new Error('Wrong format: choose an image file (PNG recommended).');
     const {imageData} = await getPixelsFromFile(file);
-    const header = parseHeader(readHeader(imageData.data));
+    const headerBytes = readHeader(imageData.data);
+    const header = headerBytes ? parseHeader(headerBytes) : null;
     if (!header) throw new Error('No hidden message found in this file. Use the original Whisper Pixels PNG; compression or resizing can erase it.');
-    const capacity = Math.floor(((imageData.data.length / 4) * 3 - HEADER_SIZE * 8) / 8);
+    const capacity = Math.floor(((imageData.data.length / 4) * 3 - header.bytes.length * 8) / 8);
     if (header.length > capacity) throw new Error('This image is too small for the payload recorded in its header, or it has been damaged.');
     showProgress(5, 'Deriving your key…');
-    const {key, seed} = await deriveKey(password, header.salt);
+    const iterations = header.version === 2 ? LEGACY_ITERATIONS : CURRENT_ITERATIONS;
+    const {key, seed} = await deriveKey(password, header.salt, iterations);
     showProgress(17, 'Reading scattered image pixels…');
-    const extracted = await runPixelWorker('extract', imageData, {length: header.length, seed, includeSamples: true}, progress => showProgress(17 + progress * 65, 'Reading scattered image pixels…'));
+    const extracted = await runPixelWorker('extract', imageData, {length: header.length, seed, headerBytes: header.bytes.length, includeSamples: true}, progress => showProgress(17 + progress * 65, 'Reading scattered image pixels…'));
     const encrypted = extracted.bytes;
     showProgress(85, 'Authenticating and decrypting…');
     try {
-      const data = parsePlaintext(await decryptWithKey(key, header.iv, encrypted));
-      const capacityBits = Math.max(0, imageData.width * imageData.height * 3 - HEADER_SIZE * 8);
+      const data = parsePlaintext(await decryptWithKey(key, header.iv, encrypted, header.version === 3 ? header.bytes : null));
+      const capacityBits = Math.max(0, imageData.width * imageData.height * 3 - header.bytes.length * 8);
       const report = createExplainReport({
         message: data.message,
         method: 'image-lsb',
@@ -578,7 +679,11 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
         height: imageData.height,
         attachmentBytes: data.fileBytes.length,
         samples: extracted.samples,
-        sampleBits: [...encrypted.subarray(0, 8)].map(byte => byte.toString(2).padStart(8, '0')).join(' ')
+        sampleBits: [...encrypted.subarray(0, 8)].map(byte => byte.toString(2).padStart(8, '0')).join(' '),
+        iterations: header.version === 2 ? LEGACY_ITERATIONS : CURRENT_ITERATIONS,
+        payloadVersion: header.version,
+        headerBytes: header.bytes.length,
+        hintBytes: textEncoder.encode(header.hint).length
       });
       return {data, report};
     } catch (error) {
@@ -588,13 +693,20 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
   }
 
   async function revealFromText(text, password) {
+    const payloadBytes = invisibleByteLength(text);
+    const prefix = decodeInvisiblePrefix(text, HEADER_SIZE + 2);
+    if (payloadBytes === null || !prefix) throw new Error('No hidden message found in this text. Paste the original text including its invisible marks.');
+    const headerSize = headerSizeFromPrefix(prefix);
+    if (headerSize === null) throw new Error('No hidden message found in this text. Paste the original text including its invisible marks.');
+    const headerBytes = decodeInvisiblePrefix(text, headerSize);
+    if (!headerBytes) throw new Error('The hidden text header is incomplete or damaged.');
     const bytes = decodeInvisible(text);
-    if (!bytes) throw new Error('No hidden message found in this text. Paste the original text including its invisible marks.');
-    const header = parseHeader(bytes.subarray(0, HEADER_SIZE));
+    if (!bytes) throw new Error('The hidden text payload is incomplete or damaged.');
+    const header = parseHeader(headerBytes);
     if (!header) throw new Error('No hidden message found in this text, or its hidden marks were changed.');
-    if (bytes.length !== HEADER_SIZE + header.length) throw new Error('The hidden text payload is incomplete or damaged.');
+    if (bytes.length !== header.bytes.length + header.length) throw new Error('The hidden text payload is incomplete or damaged.');
     showProgress(20, 'Deriving your key…');
-    const {data} = await decryptPayload(header, bytes.subarray(HEADER_SIZE), password);
+    const {data} = await decryptPayload(header, bytes.subarray(header.bytes.length), password);
     const textStats = countTextContent(text);
     const report = createExplainReport({
       message: data.message,
@@ -609,7 +721,11 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       markerCount: textStats.markers,
       attachmentBytes: data.fileBytes.length,
       samples: sampleTextMarkers(text),
-      sampleBits: [...bytes.subarray(HEADER_SIZE, HEADER_SIZE + 8)].map(byte => byte.toString(2).padStart(8, '0')).join(' ')
+      sampleBits: [...bytes.subarray(header.bytes.length, header.bytes.length + 8)].map(byte => byte.toString(2).padStart(8, '0')).join(' '),
+      iterations: header.version === 2 ? LEGACY_ITERATIONS : CURRENT_ITERATIONS,
+      payloadVersion: header.version,
+      headerBytes: header.bytes.length,
+      hintBytes: textEncoder.encode(header.hint).length
     });
     return {data, report};
   }
@@ -617,6 +733,7 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
   function showRevealed(data, report) {
     $('result').hidden = false;
     $('result-title').textContent = 'Secret revealed';
+    $('download-hint').hidden = true;
     const expired = data.expiry && new Date(`${data.expiry}T23:59:59`) < new Date();
     $('result-description').textContent = expired ? `This message has an expiry date of ${data.expiry}. Expiry is a convenience only and is not tamper-proof.` : 'The password authenticated successfully. Your message is shown below.';
     $('revealed-message').hidden = !data.message;
@@ -656,19 +773,24 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     const confirmation = $('confirm-password').value;
     const textCarrier = $('cover-text').value;
     if (!message.trim() && !state.attachment) throw new Error('Write a message or attach a file before continuing.');
-    if (password.length < 8) throw new Error('Choose a password with at least 8 characters.');
+    if (!password) throw new Error('Enter a password.');
     if (password !== confirmation) throw new Error('The passwords do not match. Check both fields and try again.');
     if (state.carrier === 'image' && !state.image) throw new Error('Choose a cover image before continuing.');
     if (state.carrier === 'text' && !textCarrier.trim()) throw new Error('Write a cover sentence before continuing.');
+    const hint = $('hide-hint').value.trim();
+    const hintBytes = textEncoder.encode(hint);
+    if (hintBytes.length > MAX_HINT_BYTES) throw new Error(`Keep the hint to ${MAX_HINT_BYTES} UTF-8 bytes or fewer.`);
     const fileBytes = state.attachment ? new Uint8Array(await state.attachment.arrayBuffer()) : new Uint8Array();
     const plaintext = createPlaintext(message, state.attachment?.name || '', state.attachment?.type || '', $('expiry-date').value, fileBytes);
     showProgress(4, 'Deriving a key from your password…');
-    const {salt, iv, ciphertext, seed, key} = await encryptBytes(password, plaintext);
+    const salt = randomBytes(16);
+    const iv = randomBytes(12);
+    const header = makeHeader(salt, iv, plaintext.length + 16, hint);
+    const {ciphertext, seed, key} = await encryptBytes(password, plaintext, header, salt, iv);
     showProgress(12, 'Encrypted with AES-256-GCM…');
-    const header = makeHeader(salt, iv, ciphertext.length);
     const combined = new Uint8Array(header.length + ciphertext.length);
     combined.set(header);
-    combined.set(ciphertext, HEADER_SIZE);
+    combined.set(ciphertext, header.length);
     if (state.carrier === 'text') {
       const cover = textCarrier;
       const max = 2 * 1024 * 1024;
@@ -676,11 +798,14 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       const invisible = encodeInvisible(combined);
       const stegoText = `${cover} ${invisible}`;
       const verified = decodeInvisible(stegoText);
-      const decrypted = await decryptPayload(parseHeader(verified.subarray(0, HEADER_SIZE)), verified.subarray(HEADER_SIZE), password);
+      const verifiedHeaderLength = headerSizeFromPrefix(verified);
+      const verifiedHeader = parseHeader(verified.subarray(0, verifiedHeaderLength));
+      const decrypted = await decryptPayload(verifiedHeader, verified.subarray(verifiedHeaderLength), password);
       if (decrypted.data.message !== message || !equalBytes(decrypted.data.fileBytes, fileBytes)) throw new Error('Verification failed: the hidden text did not decode exactly.');
       $('result').hidden = false;
       $('result-title').textContent = 'Secret hidden in text';
-      $('result-description').textContent = 'Verified by reading the hidden bytes back. Copy the complete text and share it without rich-text formatting.';
+      $('result-description').textContent = 'Verified by reading the hidden bytes back. Copy the complete text without rich-text formatting.';
+      $('download-hint').hidden = true;
       $('revealed-message').hidden = false;
       $('revealed-message').textContent = stegoText;
       $('result-actions').replaceChildren();
@@ -700,7 +825,6 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       const markerSamples = sampleTextMarkers(invisible);
       const textReport = createExplainReport({
         message,
-        password,
         method: 'text-zero-width',
         direction: 'hide',
         payloadBits: combined.length * 8,
@@ -712,7 +836,9 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
         markerCount: countCodePoints(invisible),
         attachmentBytes: fileBytes.length,
         samples: markerSamples,
-        sampleBits: [...combined.subarray(0, 8)].map(byte => byte.toString(2).padStart(8, '0')).join(' ')
+        sampleBits: [...combined.subarray(0, 8)].map(byte => byte.toString(2).padStart(8, '0')).join(' '),
+        headerBytes: header.length,
+        hintBytes: hintBytes.length
       });
       addExplainLink(textReport);
       setSuccess('Verified: your hidden text round-trips correctly.');
@@ -722,7 +848,7 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
 
     const {canvas, context, imageData} = await getPixelsFromFile(state.image.file);
     const channelCount = (imageData.data.length / 4) * 3;
-    const capacity = Math.floor((channelCount - HEADER_SIZE * 8) / 8);
+    const capacity = Math.floor((channelCount - header.length * 8) / 8);
     if (ciphertext.length > capacity) {
       const available = Math.max(0, capacity - 16);
       throw new Error(`This image is too small. It can hold about ${formatCount(available)} bytes, but this message and attachment need ${formatCount(plaintext.length)} bytes. Choose a larger image or remove the attachment.`);
@@ -731,6 +857,7 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     const {pixels: modified, stats: imageStats} = await runPixelWorker('embed', imageData, {
       bytes: ciphertext.buffer,
       header: header.buffer,
+      headerBytes: header.length,
       seed
     }, progress => showProgress(18 + progress * 57, 'Embedding encrypted data across the image…'));
     context.putImageData(new ImageData(modified, canvas.width, canvas.height), 0, 0);
@@ -742,8 +869,8 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       const outputData = readImageData(outputBitmap).imageData;
       const outputHeader = parseHeader(readHeader(outputData.data));
       if (!outputHeader || outputHeader.length !== ciphertext.length) throw new Error('Verification failed: the PNG did not preserve the embedded header.');
-      const outputCiphertext = await runPixelWorker('extract', outputData, {length: ciphertext.length, seed});
-      const parsed = parsePlaintext(await decryptWithKey(key, iv, outputCiphertext));
+      const outputCiphertext = await runPixelWorker('extract', outputData, {length: ciphertext.length, seed, headerBytes: outputHeader.bytes.length});
+      const parsed = parsePlaintext(await decryptWithKey(key, iv, outputCiphertext, outputHeader.bytes));
       if (parsed.message !== message || !equalBytes(parsed.fileBytes, fileBytes)) throw new Error('Verification failed: the encoded image did not decode to the original message.');
     } finally {
       outputBitmap.close();
@@ -752,7 +879,8 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     state.resultUrl = URL.createObjectURL(blob);
     $('result').hidden = false;
     $('result-title').textContent = 'Secret hidden & verified';
-    $('result-description').textContent = 'The PNG was decoded again and authenticated successfully. Download this exact file; avoid compression or resizing.';
+    $('result-description').textContent = 'The PNG was decoded again and authenticated successfully.';
+    $('download-hint').hidden = false;
     $('revealed-message').hidden = true;
     $('result-actions').replaceChildren();
     $('compare-original').src = state.imageUrl;
@@ -769,24 +897,24 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
     download.download = `${state.image.file.name.replace(/\.[^.]+$/, '')}-whisper.png`;
     download.textContent = '↓ Download verified PNG';
     $('result-actions').append(download);
-    const capacityBits = Math.max(0, channelCount - HEADER_SIZE * 8);
     const pixelReport = createExplainReport({
       message,
-      password,
       method: 'image-lsb',
       direction: 'hide',
       payloadBits: ciphertext.length * 8,
-      capacityBits,
+      capacityBits: Math.max(0, channelCount - header.length * 8),
       sourceFormat: state.image.file.type,
       width: canvas.width,
       height: canvas.height,
       attachmentBytes: fileBytes.length,
       samples: imageStats.samples,
-      sampleBits: [...ciphertext.subarray(0, 8)].map(byte => byte.toString(2).padStart(8, '0')).join(' ')
+      sampleBits: [...ciphertext.subarray(0, 8)].map(byte => byte.toString(2).padStart(8, '0')).join(' '),
+      headerBytes: header.length,
+      hintBytes: hintBytes.length
     });
     Object.assign(pixelReport, imageStats, {pixelsChanged: imageStats.changedPixels});
     addExplainLink(pixelReport);
-    setSuccess('Verified: the secret and attachment were read back intact.');
+    setSuccess(fileBytes.length ? 'Verified: the secret and attachment were read back intact.' : 'Verified: your secret round-trips correctly.');
     setStep(3);
     return pixelReport;
   }
@@ -831,7 +959,7 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
       if (state.mode === 'hide') await hideSecret();
       else await revealSecret();
     } catch (error) {
-      console.error('Steganography operation failed:', error);
+      console.warn('Steganography operation failed:', error);
       setError(error.message || 'The operation could not be completed.');
     } finally {
       setOperationBusy(false);
@@ -840,10 +968,31 @@ import {decodeInvisible, encodeInvisible} from './zerowidth.js';
   });
 
   $('reveal-text').addEventListener('input', () => {
+    const selectionId = ++state.selectionId;
+    state.detectedHeader = null;
+    setStep(1);
     if ($('reveal-text').value) {
       state.revealImage = null;
       $('reveal-input').value = '';
       $('reveal-meta').hidden = true;
+      $('reveal-fields').hidden = true;
+      setDetectionStatus('Checking text for a hidden message…', 'working');
+      window.clearTimeout(textDetectionTimer);
+      textDetectionTimer = window.setTimeout(() => {
+        if (selectionId !== state.selectionId) return;
+        try {
+          const header = inspectTextHeader($('reveal-text').value);
+          if (header) showDetectedPayload(header);
+          else showMissingPayload();
+        } catch (error) {
+          showDetectionError(`Unreadable hidden text: ${error.message}`);
+        }
+      }, 80);
+    } else {
+      window.clearTimeout(textDetectionTimer);
+      setDetectionStatus('Choose a file or paste text to check for a hidden payload.');
+      $('reveal-fields').hidden = true;
+      setStep(1);
     }
   });
 

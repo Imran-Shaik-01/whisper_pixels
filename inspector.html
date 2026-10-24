@@ -28,11 +28,10 @@
       </div>
     </header>
     <section class="hero inspector-hero">
-      <div class="eyebrow"><span class="status-dot"></span> INSPECTOR LAB · LOCAL ANALYSIS</div>
-      <h1>Look closer.<br><em>Learn what changed.</em></h1>
-      <p>Compare your own carrier files, explore image bit planes, inspect invisible text, and follow the encryption pipeline. Everything stays in this browser.</p>
+      <h1>Inspector <em>Lab</em></h1>
+      <p>Compare image pixels, inspect invisible text, and explore the encryption pipeline.</p>
       <button class="lab-button explain-open" id="explain-open" type="button">✨ Explain what happened</button>
-      <p class="explain-status" id="explain-status" aria-live="polite">A private, numbers-based walkthrough of your latest hide or reveal operation.</p>
+      <p class="explain-status" id="explain-status" aria-live="polite"></p>
     </section>
 
     <nav class="lab-tabs" aria-label="Inspector tools" role="tablist">
@@ -116,10 +115,10 @@
       <div class="pipeline" id="pipeline" hidden>
         <div class="pipeline-node"><span>01 · PLAINTEXT</span><code id="pipe-plain"></code></div><div class="pipeline-arrow">↓</div>
         <div class="pipeline-node"><span>02 · UTF-8 BYTES</span><code id="pipe-bytes"></code></div><div class="pipeline-arrow">↓</div>
-        <div class="pipeline-node"><span>03 · PBKDF2 → AES-256 KEY</span><code>Key fingerprint: <b id="pipe-fingerprint"></b> · 310,000 PBKDF2-SHA-256 iterations · key itself never shown</code></div><div class="pipeline-arrow">↓</div>
+        <div class="pipeline-node"><span>03 · PBKDF2 → AES-256 KEY</span><code>Key fingerprint: <b id="pipe-fingerprint"></b> · 600,000 PBKDF2-SHA-256 iterations · key itself never shown</code></div><div class="pipeline-arrow">↓</div>
         <div class="pipeline-node"><span>04 · AES-256-GCM CIPHERTEXT</span><code id="pipe-cipher"></code></div><div class="pipeline-arrow">↓</div>
         <div class="pipeline-node"><span>05 · EMBEDDED BIT STREAM</span><code id="pipe-bits"></code></div><div class="pipeline-arrow">↓</div>
-        <div class="pipeline-node"><span>06 · WHERE THE BITS LAND</span><canvas id="landing-map" width="720" height="150" aria-label="Illustration of spread pixel positions"></canvas><small>Illustrative spread only; the actual spread is keyed to the derived password and each image dimensions its own usable pixels.</small></div>
+        <div class="pipeline-node"><span>06 · WHERE THE BITS LAND</span><canvas id="landing-map" width="720" height="150" aria-label="Illustration of spread pixel positions"></canvas><small>Illustrative spread only; actual pixel order is derived from the password and image dimensions.</small></div>
       </div>
       <div class="demo-extras" id="demo-extras" hidden>
         <section class="tool-card"><div class="tool-title"><div><b>Avalanche demo</b><small>Change one character; compare ciphertext bits</small></div><span id="avalanche-score"></span></div><div class="avalanche-grid"><div><label for="changed-message">Changed plaintext</label><input id="changed-message"></div><button class="lab-button" id="compare-avalanche" type="button">Compare ciphertexts</button></div><div class="avalanche-result" id="avalanche-result"></div></section>
@@ -127,15 +126,14 @@
       </div>
     </section>
 
-    <section class="future-note"><b>Supported carriers</b><p>Whisper Pixels currently embeds and inspects image and text carriers. Audio waveform analysis and video frame inspection are not available.</p></section>
-    <footer>Whisper Pixels <span>·</span> Inspector Lab runs on your device <span>·</span> <a href="studio.html">Back to studio</a></footer>
+    <footer><a href="studio.html">Back to studio</a></footer>
   </main>
   <dialog class="explainer-dialog" id="explainer-dialog" aria-labelledby="explainer-title">
     <div class="explainer-header">
-      <div><span class="eyebrow accent-label">PRIVATE · TEMPLATE-BASED WALKTHROUGH</span><h2 id="explainer-title">What happened to your secret?</h2></div>
+      <div><h2 id="explainer-title">What happened to your secret?</h2></div>
       <button class="icon-button" id="explainer-close" type="button" aria-label="Close explanation">×</button>
     </div>
-    <p class="explainer-privacy">No cloud AI is used. This explanation is generated on this device from your operation’s statistics and short text previews; your password, key and image are never sent anywhere.</p>
+    <p class="explainer-privacy">The walkthrough uses local operation statistics, samples, and short text previews; passwords, keys, and image files are excluded.</p>
     <div class="explainer-stage-wrap">
       <div class="explainer-step-label" id="explainer-step-label"></div>
       <canvas id="explainer-stage" width="960" height="300" aria-label="Illustration for the current explanation step"></canvas>

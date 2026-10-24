@@ -1,3 +1,5 @@
+import {CURRENT_ITERATIONS} from './crypto.js';
+
 const $ = id => document.getElementById(id);
 const canvas = $('explainer-stage');
 const context = canvas.getContext('2d');
@@ -98,7 +100,7 @@ function drawLock(report) {
   drawText('never shown here', 62, 164, 13, colors.muted);
   drawText('→', 280, 142, 27, colors.purple);
   roundedRect(330, 91, 260, 98, 13, '#171421', '#3d354d');
-  drawText('PBKDF2 · 310,000 rounds', 350, 127, 16, colors.yellow);
+  drawText(`PBKDF2 · ${number(report.encryption?.iterations || CURRENT_ITERATIONS)} rounds`, 350, 127, 16, colors.yellow);
   drawText('derived key stays private', 350, 159, 13, colors.muted);
   drawText('→', 612, 142, 27, colors.purple);
   roundedRect(664, 91, 250, 98, 13, '#171421', '#3d354d');
@@ -115,10 +117,11 @@ function drawLock(report) {
 function drawPackage(report) {
   drawText('A small public header plus authenticated ciphertext', 42, 45, 15, colors.purple);
   const blocks = [
-    ['MAGIC', 100, colors.purple],
-    ['SALT · 16 B', 170, colors.yellow],
-    ['NONCE · 12 B', 170, colors.green],
-    [`CIPHERTEXT · ${number(report.payloadBits / 8)} B`, 390, colors.pink]
+    [`WPX${report.payloadVersion || 2}`, 82, colors.purple],
+    ['SALT · 16 B', 145, colors.yellow],
+    ['NONCE · 12 B', 145, colors.green],
+    [`HINT · ${number(report.hintBytes)} B`, 135, colors.yellow],
+    [`CIPHERTEXT · ${number(report.payloadBits / 8)} B`, 310, colors.pink]
   ];
   let x = 42;
   blocks.forEach(([label, width, color]) => {
@@ -126,8 +129,8 @@ function drawPackage(report) {
     drawText(label, x + 12, 145, 13, color, 'ui-monospace, monospace');
     x += width + 12;
   });
-  drawText(`Header: 36 bytes  ·  payload: ${number(report.payloadBits / 8)} encrypted bytes`, 42, 235, 15, colors.muted);
-  drawText('The salt and nonce are not secret; the password-derived key is.', 42, 265, 13, colors.muted);
+  drawText(`Header: ${number(report.headerBytes || 36)} bytes  ·  payload: ${number(report.payloadBits / 8)} encrypted bytes`, 42, 235, 15, colors.muted);
+  drawText(report.payloadVersion === 2 ? 'Legacy WPX2 has no hint; salt and nonce are public.' : 'The optional plaintext hint is authenticated; salt and nonce are public.', 42, 265, 13, colors.muted);
 }
 
 function drawLocator(report) {
@@ -263,38 +266,38 @@ function narration(report, index, technical, replay) {
   const byStep = replay ? [
     ['Your carrier', textMode ? `The stego text has ${number(report.markerCount)} invisible markers among ${number(report.stegoChars)} characters. Its visible cover text has ${number(report.coverChars)} characters.` : `This image contains the hidden payload and measures ${number(report.width)} × ${number(report.height)} pixels.`],
     ['Reading the bits', textMode ? `The ${number(report.payloadBits)} payload bits are decoded from ${number(report.markerCount)} invisible text markers.` : `The ${number(report.payloadBits)} payload bits are read from the spread RGB LSB slots across ${number(report.totalPixels)} pixels.`],
-    ['Reading the package', `The payload records ${number(report.payloadBits / 8)} ciphertext bytes. Its header supplies the salt, nonce and ciphertext length.`],
-    ['Checking your password', `PBKDF2-SHA-256 runs ${number(report.encryption?.iterations || 310000)} iterations to derive a key. AES-GCM authenticates the ciphertext before decryption.`],
+    ['Reading the package', `The ${number(report.headerBytes || 36)}-byte WPX${report.payloadVersion || 2} header supplies the salt, nonce, ciphertext length${report.hintBytes ? ` and a visible ${number(report.hintBytes)}-byte hint` : ''}.`],
+    ['Checking your password', `PBKDF2-SHA-256 runs ${number(report.encryption?.iterations || CURRENT_ITERATIONS)} iterations to derive a key. AES-GCM authenticates the ciphertext before decryption.`],
     ['Recovering bytes', `Authenticated decryption reconstructs the original ${number(report.messageBytes)} UTF-8 message bytes. No password or key is included in this report.`],
     ['Rebuilding the message', `Those bytes decode into ${number(report.messageChars)} characters${report.messagePreview ? `, beginning “${report.messagePreview.slice(0, 48)}”` : ''}.`],
     ['Revealed', `The password authenticated successfully. ${number(report.payloadBits)} payload bits were extracted using the ${report.method} method.`]
   ] : [
     ['Your message', `You entered ${number(report.messageChars)} characters, represented as ${number(report.messageBytes)} UTF-8 bytes${report.messagePreview ? ` (for example, “${report.messagePreview.slice(0, 48)}”)` : ''}${report.attachmentBytes ? `, with an attached file of ${number(report.attachmentBytes)} bytes` : ''}.`],
     ['Turned into bytes', `The message becomes ${number(report.messageBytes)} bytes. Here are real byte bits from its beginning: ${report.messageBits || 'no text bytes were included'}.`],
-    ['Locked with your password', `Your password is processed with PBKDF2-SHA-256 (${number(report.encryption?.iterations || 310000)} rounds) and AES-256-GCM encrypts the payload. The key itself is never shown or saved in this report.`],
-    ['Packaged for hiding', `A 36-byte header carries format information, a random salt, a nonce and length; ${number(report.payloadBits / 8)} ciphertext bytes follow.`],
+    ['Locked with your password', `Your password is processed with PBKDF2-SHA-256 (${number(report.encryption?.iterations || CURRENT_ITERATIONS)} rounds) and AES-256-GCM encrypts the payload. The key itself is never shown or saved in this report.`],
+    ['Packaged for hiding', `A ${number(report.headerBytes || 36)}-byte WPX${report.payloadVersion || 2} header carries a random salt, nonce and length${report.hintBytes ? `, plus a visible ${number(report.hintBytes)}-byte authenticated hint` : ''}; ${number(report.payloadBits / 8)} ciphertext bytes follow.`],
     ['Finding hiding spots', textMode ? `The text carrier uses invisible U+200B and U+200C characters to represent bits. This payload uses about ${used.toFixed(3)}% of the estimated text allowance.` : `A password-seeded order spreads the payload among ${number(report.totalPixels)} pixels. It uses ${number(report.payloadBits)} of ${number(report.capacityBits)} available carrier bits.`],
     ['Hiding the bits', textMode ? 'The encrypted bits are encoded as zero-width characters. They have no visible width, but some text apps may remove them during formatting.' : imageSampleNarration(report, false)],
-    ['Your verified result', image ? `${number(report.pixelsChanged)} of ${number(report.totalPixels)} pixels changed; the maximum channel difference was ${number(report.maxDiff)} out of 255. ${Number.isFinite(report.psnr) && report.psnr > 70 ? `At ${report.psnr.toFixed(2)} dB PSNR, the images are practically identical to the eye.` : ''}` : `The hidden text was decoded and authenticated successfully. ${number(report.payloadBits)} payload bits were embedded.`]
+    ['Your verified result', image ? report.direction === 'reveal' ? `The ${number(report.payloadBits)}-bit payload authenticated successfully. This file does not include its original cover, so pixel-difference metrics are unavailable.` : `${number(report.pixelsChanged)} of ${number(report.totalPixels)} pixels changed; the maximum channel difference was ${number(report.maxDiff)} out of 255. ${Number.isFinite(report.psnr) && report.psnr > 70 ? `At ${report.psnr.toFixed(2)} dB PSNR, the images are practically identical to the eye.` : ''}` : `The hidden text was decoded and authenticated successfully. ${number(report.payloadBits)} payload bits were embedded.`]
   ];
   const [title, simple] = byStep[index];
   if (!technical) return {title, text: simple};
   const technicalText = replay ? [
     textMode ? `Decode ${number(report.markerCount)} framed Unicode markers from a ${number(report.stegoChars)}-character stego string.` : `The carrier image is ${number(report.width)} × ${number(report.height)} pixels (${number(report.totalPixels)} total pixels).`,
     textMode ? `Decode ${number(report.payloadBits)} payload bits from the text’s zero-width markers; the preview shows actual ciphertext bits.` : `Extract ${number(report.payloadBits)} payload bits from the spread RGB LSB slots; the preview shows actual ciphertext bits.`,
-    `Parse the 36-byte WPX2 header and use its 16-byte salt, 12-byte nonce, and ciphertext length to delimit the payload.`,
-    `Derive a 256-bit AES key using PBKDF2-HMAC-SHA-256 (${number(report.encryption?.iterations || 310000)} iterations); AES-GCM authentication must succeed before plaintext is returned.`,
+    `Parse the ${number(report.headerBytes || 36)}-byte WPX${report.payloadVersion || 2} header and use its 16-byte salt, 12-byte nonce, and ciphertext length to delimit the payload${report.hintBytes ? '; the visible hint is authenticated as additional data' : ''}.`,
+    `Derive a 256-bit AES key using PBKDF2-HMAC-SHA-256 (${number(report.encryption?.iterations || CURRENT_ITERATIONS)} iterations); AES-GCM authentication must succeed before plaintext is returned.`,
     `Authenticated AES-GCM decryption restores ${number(report.messageBytes)} UTF-8 message bytes${report.attachmentBytes ? ` plus ${number(report.attachmentBytes)} attached-file bytes` : ''}.`,
     `UTF-8 decoding reconstructs ${number(report.messageChars)} characters${report.messagePreview ? `; preview: “${report.messagePreview.slice(0, 48)}”` : ''}.`,
     `The recovered payload was authenticated with the ${report.method} method; no password or key is present in the report.`
   ] : [
     `UTF-8 encodes the ${number(report.messageChars)}-character message into ${number(report.messageBytes)} bytes${report.messagePreview ? `; preview: “${report.messagePreview.slice(0, 48)}”` : ''}${report.attachmentBytes ? `; attached-file data adds ${number(report.attachmentBytes)} bytes` : ''}.`,
     `Sample UTF-8 byte bit patterns: ${report.messageBits || 'none (attachment-only payload)'}. The message length is ${number(report.messageBytes)} bytes.`,
-    `PBKDF2-HMAC-SHA-256, ${number(report.encryption?.iterations || 310000)} iterations, derives a 256-bit AES key; AES-256-GCM provides confidentiality and authentication.`,
-    `The ${number(report.payloadBits / 8)}-byte encrypted payload follows the 36-byte WPX2 header (16-byte salt, 12-byte nonce, 4-byte length plus magic).`,
+    `PBKDF2-HMAC-SHA-256, ${number(report.encryption?.iterations || CURRENT_ITERATIONS)} iterations, derives a 256-bit AES key; AES-256-GCM provides confidentiality and authentication.`,
+    `The ${number(report.payloadBits / 8)}-byte encrypted payload follows the ${number(report.headerBytes || 36)}-byte WPX${report.payloadVersion || 2} header (16-byte salt, 12-byte nonce, ciphertext length${report.hintBytes ? `, and ${number(report.hintBytes)} hint bytes authenticated as additional data` : ''}).`,
     `${number(report.payloadBits)} bits use ${number(report.capacityBits)} available carrier slots (${used.toFixed(4)}%). ${textMode ? 'Zero-width marker encoding stores one bit per marker.' : 'A password-derived seed selects a permutation of usable RGB LSB slots.'}`,
     textMode ? 'Payload bits map to U+200B (0) and U+200C (1), framed by U+2063 and U+2064.' : imageSampleNarration(report, true),
-    image ? `${number(report.pixelsChanged)} / ${number(report.totalPixels)} pixels changed (${(report.pixelsChanged / Math.max(1, report.totalPixels) * 100).toFixed(4)}%); MSE ${Number(report.mse || 0).toFixed(7)}, PSNR ${Number.isFinite(report.psnr) ? `${report.psnr.toFixed(2)} dB` : 'infinite'}.` : `Round-trip verification authenticated ${number(report.payloadBits)} payload bits.`
+    image ? report.direction === 'reveal' ? `AES-GCM authenticated ${number(report.payloadBits)} payload bits. Pixel-difference metrics require the original cover image.` : `${number(report.pixelsChanged)} / ${number(report.totalPixels)} pixels changed (${(report.pixelsChanged / Math.max(1, report.totalPixels) * 100).toFixed(4)}%); MSE ${Number(report.mse || 0).toFixed(7)}, PSNR ${Number.isFinite(report.psnr) ? `${report.psnr.toFixed(2)} dB` : 'infinite'}.` : `Round-trip verification authenticated ${number(report.payloadBits)} payload bits.`
   ];
   return {title, text: technicalText[index]};
 }
@@ -314,7 +317,6 @@ function createExplainer(report) {
     if (report.usedPercent > 70) insights.push('You used a large share of capacity; high payload density can be easier to detect statistically.');
     if (report.sourceFormat === 'image/jpeg') insights.push('The source was JPEG, but the hidden result is exported as PNG. Recompression, resizing or screenshots can destroy hidden bits.');
     if (Number.isFinite(report.psnr) && report.psnr > 70) insights.push('The before/after difference is tiny: PSNR is above 70 dB.');
-    if (report.passwordStrength !== null && report.passwordStrength <= 2) insights.push('Consider a longer, less predictable passphrase to improve password resistance.');
     return insights;
   };
   const render = () => {

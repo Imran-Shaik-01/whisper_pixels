@@ -1,5 +1,5 @@
-const CACHE = 'whisper-pixels-v13';
-const ASSETS = ['./', './index.html', './studio.html', './inspector.html', './manifest.webmanifest', './icon.svg', './css/studio.css', './css/theme-accessibility.css', './css/landing.css', './css/inspector.css', './js/landing.js', './js/studio.js', './js/inspector.js', './js/explainer.js', './js/crypto.js', './js/zerowidth.js', './js/image-worker.js'];
+const CACHE = 'whisper-pixels-v14';
+const ASSETS = ['./', './index.html', './studio.html', './inspector.html', './manifest.webmanifest', './icon.svg', './samples/cover.png', './samples/hidden-message.png', './samples/note.txt', './samples/tone.wav', './samples/pixels.avi', './css/studio.css', './css/theme-accessibility.css', './css/landing.css', './css/inspector.css', './js/landing.js', './js/studio.js', './js/inspector.js', './js/explainer.js', './js/crypto.js', './js/zerowidth.js', './js/image-worker.js'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
   self.skipWaiting();

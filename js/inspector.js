@@ -1,4 +1,4 @@
-import {deriveKey, randomBytes} from './crypto.js';
+import {CURRENT_ITERATIONS, HEADER_SIZE, deriveKey, headerSizeFromPrefix, parseHeader, randomBytes} from './crypto.js';
 import {decodeInvisible} from './zerowidth.js';
 import {initExplainer} from './explainer.js';
 
@@ -6,6 +6,7 @@ const $ = id => document.getElementById(id);
 const MAX_PIXELS = 12000000;
 const CHANNELS = ['R', 'G', 'B'];
 const imageState = {original: null, stego: null, originalPixels: null, stegoPixels: null, width: 0, height: 0, view: 'slider'};
+let imagePairVersion = 0;
 let demoState = null;
 let explainReport = null;
 let explainReportError = null;
@@ -36,6 +37,7 @@ function setThemeButton() {
   const light = document.documentElement.classList.contains('light-mode');
   $('theme-toggle').textContent = light ? '☾' : '☼';
   $('theme-toggle').setAttribute('aria-label', `Switch to ${light ? 'dark' : 'light'} theme`);
+  $('theme-toggle').title = `Switch to ${light ? 'dark' : 'light'} theme`;
 }
 setThemeButton();
 $('theme-toggle').addEventListener('click', () => {
@@ -92,23 +94,27 @@ function setImageFileLabel(id, file) {
   $(id).textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
 }
 
-async function loadPairIfReady() {
+async function loadPairIfReady(version) {
   if (!imageState.original || !imageState.stego) return;
   clearError('image-error');
+  let original;
+  let stego;
   try {
-    const [original, stego] = await Promise.all([
+    const images = await Promise.allSettled([
       createImageBitmap(imageState.original),
       createImageBitmap(imageState.stego)
     ]);
+    if (images.some(image => image.status === 'rejected')) {
+      for (const image of images) if (image.status === 'fulfilled') image.value.close();
+      throw images.find(image => image.status === 'rejected').reason;
+    }
+    [original, stego] = images.map(image => image.value);
+    if (version !== imagePairVersion) return;
     if (original.width !== stego.width || original.height !== stego.height) {
       const dimensions = `Image dimensions must match. Original: ${original.width} × ${original.height}; stego: ${stego.width} × ${stego.height}.`;
-      original.close();
-      stego.close();
       throw new Error(dimensions);
     }
     if (original.width * original.height > MAX_PIXELS) {
-      original.close();
-      stego.close();
       throw new Error('These images exceed the 12-megapixel analysis limit. Use smaller images to avoid browser memory issues.');
     }
     const originalPixels = bitmapPixels(original);
@@ -138,31 +144,38 @@ async function loadPairIfReady() {
     calculateStatistics();
     drawBitplane();
     drawHistogram();
-    original.close();
-    stego.close();
   } catch (error) {
+    if (version !== imagePairVersion) return;
     console.error('Image comparison failed:', error);
     showError('image-error', error.message);
     $('comparison-card').hidden = true;
     $('image-tools').hidden = true;
+  } finally {
+    original?.close();
+    stego?.close();
   }
 }
 
-for (const [inputId, labelId, key] of [['original-input', 'original-file-label', 'original'], ['stego-input', 'stego-file-label', 'stego']]) {
-  $(inputId).addEventListener('change', event => {
-    const file = event.target.files[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      showError('image-error', 'Choose an image file. The Inspector Lab compares decoded image pixels.');
-      return;
-    }
-    imageState[key] = file;
-    setImageFileLabel(labelId, file);
-    loadPairIfReady();
-  });
+function setComparisonFile(file, labelId, key) {
+  const version = ++imagePairVersion;
+  $('comparison-card').hidden = true;
+  $('image-tools').hidden = true;
+  if (!file) {
+    imageState[key] = null;
+    return;
+  }
+  if (!file.type.startsWith('image/')) {
+    imageState[key] = null;
+    showError('image-error', 'Choose an image file. The Inspector Lab compares decoded image pixels.');
+    return;
+  }
+  imageState[key] = file;
+  setImageFileLabel(labelId, file);
+  loadPairIfReady(version);
 }
 
 for (const [inputId, labelId, key] of [['original-input', 'original-file-label', 'original'], ['stego-input', 'stego-file-label', 'stego']]) {
+  $(inputId).addEventListener('change', event => setComparisonFile(event.target.files[0], labelId, key));
   const label = $(inputId).closest('.lab-upload');
   for (const eventName of ['dragenter', 'dragover']) label.addEventListener(eventName, event => {
     event.preventDefault();
@@ -175,13 +188,7 @@ for (const [inputId, labelId, key] of [['original-input', 'original-file-label',
   label.addEventListener('drop', event => {
     const file = event.dataTransfer.files[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      showError('image-error', 'Choose an image file. The Inspector Lab compares decoded image pixels.');
-      return;
-    }
-    imageState[key] = file;
-    setImageFileLabel(labelId, file);
-    loadPairIfReady();
+    setComparisonFile(file, labelId, key);
   });
 }
 
@@ -203,15 +210,24 @@ function drawHeatmap() {
   context.putImageData(image, 0, 0);
 }
 
-function getPayloadLength(pixels) {
-  if (!pixels || pixels.length < 36 * 8 / 3 * 4) return null;
-  const header = new Uint8Array(36);
-  for (let bit = 0; bit < 36 * 8; bit++) {
-    const channel = Math.floor(bit / 3) * 4 + bit % 3;
-    header[bit >> 3] |= (pixels[channel] & 1) << (7 - (bit & 7));
+function readPayloadHeader(pixels) {
+  if (!pixels || pixels.length < Math.ceil((HEADER_SIZE + 2) * 8 / 3) * 4) return null;
+  const read = byteLength => {
+    const bytes = new Uint8Array(byteLength);
+    for (let bit = 0; bit < byteLength * 8; bit++) {
+      const channel = Math.floor(bit / 3) * 4 + bit % 3;
+      bytes[bit >> 3] |= (pixels[channel] & 1) << (7 - (bit & 7));
+    }
+    return bytes;
+  };
+  try {
+    const prefix = read(HEADER_SIZE + 2);
+    const size = headerSizeFromPrefix(prefix);
+    return size === null ? null : parseHeader(size === prefix.length ? prefix : read(size));
+  } catch (error) {
+    console.warn('Image payload header could not be parsed:', error);
+    return null;
   }
-  if (header[0] !== 0x57 || header[1] !== 0x50 || header[2] !== 0x58 || header[3] !== 0x32) return null;
-  return new DataView(header.buffer).getUint32(32);
 }
 
 function calculateStatistics() {
@@ -237,9 +253,9 @@ function calculateStatistics() {
   $('stat-mse').textContent = mse.toFixed(6);
   $('stat-psnr').textContent = psnr;
   $('stat-max').textContent = `${maxDifference} / 255`;
-  const payloadBytes = getPayloadLength(after);
-  const capacityBytes = Math.max(0, Math.floor((totalPixels * 3 - 36 * 8) / 8));
-  $('stat-capacity').textContent = payloadBytes === null ? 'Header not recognized' : `${payloadBytes.toLocaleString()} / ${capacityBytes.toLocaleString()} B`;
+  const payloadHeader = readPayloadHeader(after);
+  const capacityBytes = Math.max(0, Math.floor((totalPixels * 3 - (payloadHeader?.bytes.length || HEADER_SIZE) * 8) / 8));
+  $('stat-capacity').textContent = !payloadHeader ? 'Header not recognized' : `${payloadHeader.length.toLocaleString()} / ${capacityBytes.toLocaleString()} B`;
 }
 
 function drawBitplane() {
@@ -502,7 +518,7 @@ function drawLandingMap(seed, bitCount) {
 async function encryptDemo(message) {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
-  const keyInfo = await deriveKey($('demo-password').value, salt);
+  const keyInfo = await deriveKey($('demo-password').value, salt, CURRENT_ITERATIONS);
   const plaintext = new TextEncoder().encode(message);
   const ciphertext = new Uint8Array(await crypto.subtle.encrypt({name: 'AES-GCM', iv}, keyInfo.key, plaintext));
   return {salt, iv, keyInfo, plaintext, ciphertext};
@@ -568,7 +584,7 @@ $('compare-avalanche').addEventListener('click', async () => {
     const changedBytes = new TextEncoder().encode(changed);
     const freshIv = randomBytes(12);
     const freshSalt = randomBytes(16);
-    const freshKey = await deriveKey($('demo-password').value, freshSalt);
+    const freshKey = await deriveKey($('demo-password').value, freshSalt, CURRENT_ITERATIONS);
     const second = new Uint8Array(await crypto.subtle.encrypt({name: 'AES-GCM', iv: freshIv}, freshKey.key, changedBytes));
     const maxLength = Math.max(second.length, demoState.ciphertext.length);
     let differentBits = 0;
@@ -591,7 +607,7 @@ $('wrong-password-demo').addEventListener('click', async () => {
     return;
   }
   try {
-    const wrongKey = await deriveKey('definitely-not-the-demo-password', demoState.salt);
+    const wrongKey = await deriveKey('definitely-not-the-demo-password', demoState.salt, CURRENT_ITERATIONS);
     await crypto.subtle.decrypt({name: 'AES-GCM', iv: demoState.iv}, wrongKey.key, demoState.ciphertext);
     $('wrong-result').textContent = 'Unexpectedly authenticated. Reset the demo and try again.';
   } catch (error) {

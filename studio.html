@@ -28,10 +28,8 @@
       </div>
     </header>
 
-    <section class="hero">
-      <div class="eyebrow"><span class="status-dot"></span> PRIVATE BY DESIGN · NOTHING LEAVES YOUR DEVICE</div>
-      <h1>A little secret.<br><em>In plain sight.</em></h1>
-      <p>Protect a message or file, then tuck it inside an image. Only the image and your password are needed to reveal it.</p>
+    <section class="hero studio-hero">
+      <h1>Hide <em>/</em> Reveal</h1>
       <div class="mode-switch" role="group" aria-label="Choose hide or reveal">
         <button class="mode-choice active" id="hide-mode" type="button" aria-pressed="true">↗ Hide a secret</button>
         <button class="mode-choice" id="reveal-mode" type="button" aria-pressed="false">↙ Reveal a secret</button>
@@ -48,7 +46,6 @@
       <section class="card workflow-card" aria-labelledby="workspace-title">
         <div class="card-heading">
           <div><span class="eyebrow accent-label" id="step-kicker">STEP 01 — CHOOSE A CARRIER</span><h2 id="workspace-title">Choose what to hide in</h2></div>
-          <span class="lock-badge">⌁ ENCRYPTED HERE</span>
         </div>
 
         <div class="carrier-tabs" id="carrier-tabs" role="group" aria-label="Carrier type">
@@ -62,7 +59,7 @@
             <span class="upload-icon" aria-hidden="true">↑</span>
             <strong id="image-drop-title">Drop a cover image here</strong>
             <span>or <u>browse files</u> · PNG, JPEG, WebP, BMP</span>
-            <small>We always export as PNG. Start with a detailed, larger image for more capacity.</small>
+            <small>PNG, JPEG, WebP or BMP · output is always PNG</small>
           </label>
           <div class="file-preview" id="image-preview" hidden>
             <img id="cover-preview" alt="Selected cover image preview">
@@ -92,11 +89,13 @@
             <span class="upload-icon" aria-hidden="true">↙</span>
             <strong>Drop the original stego PNG here</strong>
             <span>or <u>browse for an image</u></span>
-            <small>Do not re-share through services that compress or resize images.</small>
+            <small>Choose an image to check for a hidden payload.</small>
           </label>
           <div class="file-meta reveal-meta" id="reveal-meta" hidden><b id="reveal-name"></b><span id="reveal-details"></span></div>
           <label for="reveal-text" class="reveal-text-label">Or paste stego text</label>
           <textarea id="reveal-text" rows="3" placeholder="Paste text that may contain an invisible message…"></textarea>
+          <p class="detection-status" id="detection-status" role="status" aria-live="polite">Choose a file or paste text to check for a hidden payload.</p>
+          <p class="detected-hint" id="detected-hint" hidden></p>
         </div>
 
         <div class="divider"><span id="divider-label">YOUR SECRET</span></div>
@@ -110,11 +109,13 @@
             <button id="remove-attachment" type="button" class="quiet-button" hidden>Remove attachment</button>
           </div>
           <div id="attachment-meta" class="attachment-meta" hidden></div>
+          <label for="hide-hint">Hint <span class="optional">(optional)</span></label>
+          <input id="hide-hint" type="text" maxlength="256" autocomplete="off" placeholder="A clue to help you remember">
+          <small class="hint-warning">Visible to anyone who finds the file. Never include the password.</small>
           <div class="password-grid">
             <div>
               <label for="hide-password">Password</label>
-              <div class="password-wrap"><input id="hide-password" type="password" autocomplete="new-password" placeholder="Use a strong passphrase"><button type="button" class="show-password" data-target="hide-password" aria-label="Show password">Show</button></div>
-              <div class="strength"><span id="strength-fill"></span></div><small id="strength-label">Password strength</small>
+              <div class="password-wrap"><input id="hide-password" type="password" autocomplete="new-password" placeholder="Enter a password"><button type="button" class="show-password" data-target="hide-password" aria-label="Show password">Show</button></div>
             </div>
             <div>
               <label for="confirm-password">Confirm password</label>
@@ -123,13 +124,12 @@
           </div>
           <label for="expiry-date">Optional expiry date <span class="optional">(convenience only)</span></label>
           <input id="expiry-date" type="date">
-          <p class="field-note">Expiry is checked in this browser, not enforced cryptographically. Keep your password safe: it cannot be recovered.</p>
+          <p class="field-note">Password is required. It cannot be recovered.</p>
         </div>
 
         <div id="reveal-fields" hidden>
           <label for="reveal-password">Password</label>
           <div class="password-wrap"><input id="reveal-password" type="password" autocomplete="current-password" placeholder="Enter the password used to hide it"><button type="button" class="show-password" data-target="reveal-password" aria-label="Show password">Show</button></div>
-          <p class="field-note">A wrong password is reported separately from an image with no Whisper Pixels payload.</p>
         </div>
 
         <div class="alert" id="alert" role="status" aria-live="polite" hidden></div>
@@ -138,7 +138,7 @@
 
         <section class="result" id="result" hidden aria-live="polite">
           <div class="result-icon" id="result-icon">✓</div>
-          <div><h3 id="result-title">All set</h3><p id="result-description"></p></div>
+          <div><h3 id="result-title">All set</h3><p id="result-description"></p><small class="download-hint" id="download-hint" hidden>Share the exact PNG; compression or resizing can remove the hidden data.</small></div>
           <div id="revealed-message" class="revealed-message" hidden></div>
           <div id="revealed-file" class="revealed-file" hidden></div>
           <div class="result-actions" id="result-actions"></div>
@@ -156,24 +156,8 @@
         </section>
       </section>
 
-      <aside class="side-column">
-        <section class="info-card">
-          <span class="eyebrow accent-label">A SIMPLE EXPLANATION</span>
-          <h2>How does this work?</h2>
-          <p>We encrypt your secret, then tuck it into tiny image details that are too subtle to notice. Think of changing one pixel’s color by just one step:</p>
-          <div class="pixel-demo" aria-label="Pixel color changes from 100 to 101, a one-bit change">
-            <span class="pixel-swatch"></span><span class="pixel-value">100</span><span class="pixel-arrow">→</span><span class="pixel-swatch changed"></span><span class="pixel-value">101</span>
-          </div>
-          <p class="demo-caption">The color barely changes. That single-bit difference can carry data.</p>
-          <div class="explain-rule"><b>Encryption</b><span>PBKDF2 turns your password into an AES-256 key. AES-GCM detects tampering and wrong passwords.</span></div>
-          <div class="explain-rule"><b>Image safety</b><span>Pixels survive only if the image is preserved exactly. Compression, resizing, screenshots and filters destroy the hidden data.</span></div>
-          <div class="explain-rule"><b>Privacy</b><span>Everything runs locally in your browser. This tool does not send your files or password to a server.</span></div>
-        </section>
-        <section class="notice-card"><span aria-hidden="true">!</span><div><b>Keep the original quality</b><p>Always use the downloaded PNG. Sharing through WhatsApp, Instagram or email may recompress it and remove the secret.</p></div></section>
-        <section class="notice-card audio-note"><span aria-hidden="true">♪</span><div><b>Audio & video files</b><p>They are not supported as carriers yet. Appending data to them is unreliable; re-encoding usually strips it. Use a PNG image instead.</p></div></section>
-      </aside>
     </div>
-    <footer>Whisper Pixels <span>·</span> Your data stays on this device <span>·</span> <a href="https://github.com/Imran-Shaik-01/whisper_pixels/issues" target="_blank" rel="noreferrer">Report a bug</a></footer>
+    <footer><a href="https://github.com/Imran-Shaik-01/whisper_pixels/issues" target="_blank" rel="noreferrer">Report a bug</a></footer>
   </main>
   <script type="module" src="js/studio.js"></script>
 </body>

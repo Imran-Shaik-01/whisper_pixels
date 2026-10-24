@@ -34,6 +34,10 @@ The application has no account system or application backend. Your message, pass
 | **Explain what happened** | Follow a seven-step beginner or technical walkthrough based on real operation measurements and samples. It runs locally and does not use cloud AI. |
 | **Offline app shell** | Install the static app for offline use after its assets have been cached by your browser. |
 
+## Try the samples
+
+The landing page includes small, self-generated downloads for a ready-to-reveal PNG, a detailed cover PNG, a text attachment, a WAV attachment, and an AVI attachment. The ready-made image uses password `pixel-demo-2026` and hint `night-sky`. Audio and video are attachments only; they are not supported carrier formats.
+
 ## A quick tour
 
 1. **Choose a carrier.** Use an image for lossless PNG output, or text for zero-width character encoding.
@@ -44,11 +48,11 @@ The Inspector Lab is available from the Studio. After a successful hide or revea
 
 ## Security and format
 
-- **Encryption:** AES-256-GCM from the browser Web Crypto API. PBKDF2-HMAC-SHA-256 derives the key from the password using 310,000 iterations and a random salt.
-- **Image carrier:** A `WPX2` header stores the salt, nonce, and ciphertext length. Header bits are written first; encrypted payload bits are spread through RGB least-significant-bit slots using a key-derived seed. The result is exported as PNG and verified by decoding and authenticating it again.
+- **Encryption:** AES-256-GCM from the browser Web Crypto API. New payloads use PBKDF2-HMAC-SHA-256 with 600,000 iterations, a random 16-byte salt, and a random 12-byte nonce. Existing `WPX2` payloads remain readable with their original 310,000-iteration setting.
+- **Image carrier:** New `WPX3` headers include the salt, nonce, ciphertext length, and optional visible hint. The full header is authenticated as AES-GCM additional data. Header bits are written first; encrypted payload bits are spread through RGB least-significant-bit slots using a key-derived seed. The result is exported as PNG and verified by decoding and authenticating it again.
 - **Text carrier:** The encrypted payload is framed in zero-width characters. Text apps may strip or normalize these marks, so use the complete copied output without reformatting it.
 - **Files:** An optional attachment can be included with the message. The app accepts files up to 20 MB, but the carrier must still have enough capacity for the complete encrypted payload.
-- **Password:** It is not stored or recoverable. A strong, unique passphrase is important; AES-GCM rejects a wrong password or altered ciphertext.
+- **Password:** It is not stored or recoverable. Use a strong, unique passphrase; AES-GCM rejects a wrong password, altered ciphertext, or modified hint.
 
 This project is an educational privacy tool, not a substitute for a professional security review or safe key exchange. Steganography does not guarantee that a payload is undetectable. Expiry dates are a convenience checked by the client, not cryptographic enforcement.
 
@@ -56,7 +60,7 @@ This project is an educational privacy tool, not a substitute for a professional
 
 - Always share the **exact PNG** produced by the Studio. JPEG conversion, resizing, filters, screenshots, and social or messaging services that recompress images can destroy hidden data.
 - Text formatting and some apps can remove zero-width characters.
-- Audio and video embedding are not supported.
+- Audio and video are supported as attachments only, not as carriers.
 - The Inspector Lab analyzes image pairs up to 12 megapixels to limit browser memory use.
 - Offline mode requires an initial visit from `localhost` or an HTTPS site so the service worker can cache the app shell.
 
@@ -105,6 +109,12 @@ whisper_pixels/
 │   ├── inspector.js
 │   └── explainer.js
 ├── tests/
+├── samples/
+│   ├── cover.png
+│   ├── hidden-message.png
+│   ├── note.txt
+│   ├── pixels.avi
+│   └── tone.wav
 ├── manifest.webmanifest
 ├── icon.svg
 └── sw.js                       Offline application shell
